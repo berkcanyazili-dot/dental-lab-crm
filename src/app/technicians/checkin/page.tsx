@@ -135,7 +135,7 @@ export default function CheckInPage() {
       if (!selectedTechId && techsData.length > 0) {
         setSelectedTechId(techsData[0].id);
       }
-    } catch (e) {
+    } catch {
       setError("Failed to load cases. Please refresh.");
     } finally {
       setLoading(false);
@@ -144,7 +144,7 @@ export default function CheckInPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const filtered = cases
     .filter((c) => {

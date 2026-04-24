@@ -98,7 +98,7 @@ interface CaseDetail {
 
 /* ─── Helpers ───────────────────────────────────────────────── */
 const STEP_STATUS_OPTIONS = ["SCHEDULED", "READY", "IN_PROCESS", "COMPLETE"] as const;
-type StepStatus = typeof STEP_STATUS_OPTIONS[number];
+type StepStatus = typeof STEP_STATUS_OPTIONS[number]; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 const STEP_STATUS_STYLES: Record<string, string> = {
   SCHEDULED: "bg-gray-700/60 text-gray-400 border-gray-600",

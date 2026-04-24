@@ -1,10 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { testConnection } from "@/lib/shopify";
 
-// On Vercel the filesystem is read-only, so we can only read env vars that
-// were set at deploy time. The GET endpoint returns current runtime values,
-// and POST updates process.env in-memory for the current invocation only.
-// To persist Shopify credentials on Vercel, set them in the Vercel dashboard.
+function parseEnv(content: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const line of content.split("\n")) {
+    const match = line.match(/^([^#=\s][^=]*?)=(.*)$/);
+    if (!match) continue;
+    const key = match[1].trim();
+    let val = match[2].trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    map[key] = val;
+  }
+  return map;
+}
+
+function serializeEnv(vars: Record<string, string>): string {
+  return Object.entries(vars).map(([k, v]) => `${k}="${v}"`).join("\n") + "\n";
+}
+
+// On Vercel the filesystem is read-only — env vars set here persist only for
+// the current serverless invocation. Set them permanently in the Vercel dashboard.
 
 export async function GET() {
   return NextResponse.json({
@@ -29,46 +49,26 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Update process.env for the lifetime of this serverless invocation.
-  // On Vercel, set these permanently via the Vercel dashboard → Settings → Environment Variables.
+  // Update process.env for the lifetime of this serverless invocation
   if (storeUrl !== undefined) process.env.SHOPIFY_STORE_URL = storeUrl;
   if (adminToken) process.env.SHOPIFY_ADMIN_TOKEN = adminToken;
   if (webhookSecret) process.env.SHOPIFY_WEBHOOK_SECRET = webhookSecret;
   if (defaultAccountId !== undefined) process.env.SHOPIFY_DEFAULT_ACCOUNT_ID = defaultAccountId;
 
-  // Try to persist to .env for local development only
+  // Persist to .env for local development only (silently ignored on Vercel)
   try {
     const fs = await import("fs");
     const path = await import("path");
     const ENV_PATH = path.join(process.cwd(), ".env");
-
-    function parseEnv(content: string): Record<string, string> {
-      const map: Record<string, string> = {};
-      for (const line of content.split("\n")) {
-        const match = line.match(/^([^#=\s][^=]*?)=(.*)$/);
-        if (!match) continue;
-        const key = match[1].trim();
-        let val = match[2].trim();
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-          val = val.slice(1, -1);
-        }
-        map[key] = val;
-      }
-      return map;
-    }
-
     const content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
     const vars = parseEnv(content);
-
     if (storeUrl !== undefined) vars.SHOPIFY_STORE_URL = storeUrl;
     if (adminToken) vars.SHOPIFY_ADMIN_TOKEN = adminToken;
     if (webhookSecret) vars.SHOPIFY_WEBHOOK_SECRET = webhookSecret;
     if (defaultAccountId !== undefined) vars.SHOPIFY_DEFAULT_ACCOUNT_ID = defaultAccountId;
-
-    const serialized = Object.entries(vars).map(([k, v]) => `${k}="${v}"`).join("\n") + "\n";
-    fs.writeFileSync(ENV_PATH, serialized, "utf8");
+    fs.writeFileSync(ENV_PATH, serializeEnv(vars), "utf8");
   } catch {
-    // Silently ignore on Vercel (read-only filesystem)
+    // Read-only filesystem on Vercel — expected
   }
 
   return NextResponse.json({ success: true });

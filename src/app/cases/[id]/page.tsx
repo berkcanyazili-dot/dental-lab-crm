@@ -1,0 +1,752 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import {
+  ArrowLeft, ChevronDown, Save, RefreshCw, Plus, Send,
+  CalendarDays, Clock, Package, Truck, User, Building2,
+  FileText, Activity, Wrench, CheckCircle2, Circle,
+  AlertCircle, Loader2, Hash, Printer,
+} from "lucide-react";
+import ToothDiagram from "@/components/ui/ToothDiagram";
+import { STATUS_COLORS, PRIORITY_COLORS } from "@/lib/constants";
+import { formatCurrency, formatDate } from "@/lib/utils";
+
+/* ─── Types ─────────────────────────────────────────────────── */
+interface CaseItem {
+  id: string;
+  productType: string;
+  toothNumbers: string | null;
+  units: number;
+  shade: string | null;
+  price: number;
+  notes: string | null;
+}
+
+interface ScheduleStep {
+  id: string;
+  department: string;
+  sortOrder: number;
+  status: string;
+  technicianId: string | null;
+  technician: { id: string; name: string } | null;
+  scheduledDate: string | null;
+  completedDate: string | null;
+  notes: string | null;
+}
+
+interface CaseNote {
+  id: string;
+  content: string;
+  authorName: string;
+  createdAt: string;
+}
+
+interface AuditEntry {
+  id: string;
+  action: string;
+  details: string | null;
+  authorName: string;
+  createdAt: string;
+}
+
+interface Technician {
+  id: string;
+  name: string;
+  specialty: string | null;
+}
+
+interface CaseDetail {
+  id: string;
+  caseNumber: string;
+  patientName: string;
+  patientFirst: string | null;
+  patientMI: string | null;
+  patientLast: string | null;
+  patientAge: number | null;
+  patientGender: string | null;
+  status: string;
+  priority: string;
+  caseType: string;
+  caseOrigin: string;
+  route: string;
+  rushOrder: boolean;
+  pan: string | null;
+  shade: string | null;
+  softTissueShade: string | null;
+  metalSelection: string | null;
+  selectedTeeth: string | null;
+  missingTeeth: string | null;
+  materialsReceived: string | null;
+  notes: string | null;
+  internalNotes: string | null;
+  totalValue: number;
+  isPaid: boolean;
+  receivedDate: string;
+  dueDate: string | null;
+  shippedDate: string | null;
+  shippingCarrier: string | null;
+  shippingAddress: string | null;
+  dentalAccount: { id: string; name: string; doctorName: string | null; phone: string | null; city: string | null; state: string | null };
+  technician: { id: string; name: string } | null;
+  items: CaseItem[];
+  caseNotes: CaseNote[];
+  schedule: ScheduleStep[];
+  audits: AuditEntry[];
+}
+
+/* ─── Helpers ───────────────────────────────────────────────── */
+const STEP_STATUS_OPTIONS = ["SCHEDULED", "READY", "IN_PROCESS", "COMPLETE"] as const;
+type StepStatus = typeof STEP_STATUS_OPTIONS[number];
+
+const STEP_STATUS_STYLES: Record<string, string> = {
+  SCHEDULED: "bg-gray-700/60 text-gray-400 border-gray-600",
+  READY:      "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  IN_PROCESS: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  COMPLETE:   "bg-green-500/20 text-green-400 border-green-500/30",
+};
+
+const STEP_ICONS: Record<string, React.ReactNode> = {
+  SCHEDULED:  <Circle className="w-3.5 h-3.5" />,
+  READY:      <AlertCircle className="w-3.5 h-3.5" />,
+  IN_PROCESS: <Loader2 className="w-3.5 h-3.5 animate-spin" />,
+  COMPLETE:   <CheckCircle2 className="w-3.5 h-3.5" />,
+};
+
+const ROUTE_LABELS: Record<string, string> = {
+  LOCAL: "Local",
+  UPS_GROUND: "UPS Ground",
+  UPS_2DAY: "UPS 2nd Day",
+  FEDEX: "FedEx",
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  CASE_CREATED:        "Case Created",
+  CASE_UPDATED:        "Case Updated",
+  NOTE_ADDED:          "Note Added",
+  SCHEDULE_GENERATED:  "Schedule Generated",
+  SCHEDULE_UPDATED:    "Schedule Updated",
+  TECH_CHECKIN:        "Tech Checked In",
+  TECH_CHECKOUT:       "Tech Checked Out",
+};
+
+function InfoCard({ label, value, icon: Icon }: { label: string; value: React.ReactNode; icon?: React.ElementType }) {
+  return (
+    <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-1.5">
+        {Icon && <Icon className="w-3.5 h-3.5 text-gray-500" />}
+        <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">{label}</span>
+      </div>
+      <div className="text-sm font-medium text-white">{value || "—"}</div>
+    </div>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType; title: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <Icon className="w-4 h-4 text-sky-400" />
+      <h2 className="text-sm font-semibold text-white uppercase tracking-wide">{title}</h2>
+      {action && <div className="ml-auto">{action}</div>}
+    </div>
+  );
+}
+
+/* ─── Main Page ─────────────────────────────────────────────── */
+export default function CaseDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+
+  const [caseData, setCaseData] = useState<CaseDetail | null>(null);
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [generatingSchedule, setGeneratingSchedule] = useState(false);
+
+  const [editStatus, setEditStatus] = useState("");
+  const [selectedTeeth, setSelectedTeeth] = useState<number[]>([]);
+  const [missingTeeth, setMissingTeeth] = useState<number[]>([]);
+  const [shade, setShade] = useState("");
+  const [softTissueShade, setSoftTissueShade] = useState("");
+  const [metalSelection, setMetalSelection] = useState("");
+  const [materialsReceived, setMaterialsReceived] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
+
+  const [newNote, setNewNote] = useState("");
+  const [submittingNote, setSubmittingNote] = useState(false);
+
+  const load = useCallback(async () => {
+    const [caseRes, techRes] = await Promise.all([
+      fetch(`/api/cases/${id}`),
+      fetch("/api/technicians"),
+    ]);
+    const c: CaseDetail = await caseRes.json();
+    const t: Technician[] = await techRes.json();
+    setCaseData(c);
+    setTechnicians(Array.isArray(t) ? t : []);
+    setEditStatus(c.status);
+    setSelectedTeeth(c.selectedTeeth ? JSON.parse(c.selectedTeeth) : []);
+    setMissingTeeth(c.missingTeeth ? JSON.parse(c.missingTeeth) : []);
+    setShade(c.shade ?? "");
+    setSoftTissueShade(c.softTissueShade ?? "");
+    setMetalSelection(c.metalSelection ?? "");
+    setMaterialsReceived(c.materialsReceived ?? "");
+    setInternalNotes(c.internalNotes ?? "");
+    setLoading(false);
+  }, [id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  /* ─── Save case fields ───────────────────────────────────── */
+  const saveCase = async () => {
+    setSaving(true);
+    await fetch(`/api/cases/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: editStatus,
+        shade: shade || null,
+        softTissueShade: softTissueShade || null,
+        metalSelection: metalSelection || null,
+        materialsReceived: materialsReceived || null,
+        internalNotes: internalNotes || null,
+        selectedTeeth: JSON.stringify(selectedTeeth),
+        missingTeeth: JSON.stringify(missingTeeth),
+        _authorName: "Staff",
+      }),
+    });
+    await load();
+    setSaving(false);
+  };
+
+  /* ─── Schedule step update ───────────────────────────────── */
+  const updateStep = async (stepId: string, field: string, value: string) => {
+    await fetch(`/api/cases/${id}/schedule`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: stepId, [field]: value, authorName: "Staff" }),
+    });
+    await load();
+  };
+
+  /* ─── Generate schedule ──────────────────────────────────── */
+  const generateSchedule = async () => {
+    setGeneratingSchedule(true);
+    await fetch(`/api/cases/${id}/schedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ generate: true, authorName: "Staff" }),
+    });
+    await load();
+    setGeneratingSchedule(false);
+  };
+
+  /* ─── Add note ───────────────────────────────────────────── */
+  const submitNote = async () => {
+    if (!newNote.trim()) return;
+    setSubmittingNote(true);
+    await fetch(`/api/cases/${id}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: newNote.trim(), authorName: "Staff" }),
+    });
+    setNewNote("");
+    await load();
+    setSubmittingNote(false);
+  };
+
+  /* ─── Loading state ──────────────────────────────────────── */
+  if (loading || !caseData) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500" />
+      </div>
+    );
+  }
+
+  const fullPatientName =
+    [caseData.patientFirst, caseData.patientMI ? `${caseData.patientMI}.` : null, caseData.patientLast]
+      .filter(Boolean)
+      .join(" ") || caseData.patientName;
+
+  const hasSchedule = caseData.schedule.length > 0;
+
+  return (
+    <div className="min-h-screen bg-gray-900 pb-16">
+
+      {/* ── Top header bar ── */}
+      <div className="sticky top-0 z-20 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-6 py-3 flex items-center gap-4">
+        <button
+          onClick={() => router.back()}
+          className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+
+        <div className="h-4 w-px bg-gray-700" />
+
+        {/* Case number */}
+        <span className="font-mono text-sky-400 font-bold text-lg">{caseData.caseNumber}</span>
+
+        {/* Status badge + editable dropdown */}
+        <div className="relative">
+          <select
+            value={editStatus}
+            onChange={(e) => setEditStatus(e.target.value)}
+            className={`appearance-none text-xs px-3 py-1.5 pr-7 rounded-full border font-semibold cursor-pointer focus:outline-none transition-all ${STATUS_COLORS[editStatus]}`}
+          >
+            {["INCOMING","IN_LAB","WIP","HOLD","REMAKE","COMPLETE","SHIPPED"].map((s) => (
+              <option key={s} value={s} className="bg-gray-800 text-white">{s}</option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none" />
+        </div>
+
+        {/* Priority badge */}
+        {caseData.priority !== "NORMAL" && (
+          <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${PRIORITY_COLORS[caseData.priority]}`}>
+            {caseData.priority}
+          </span>
+        )}
+        {caseData.rushOrder && (
+          <span className="text-xs px-2.5 py-1 rounded-full bg-red-500/20 text-red-400 font-semibold">RUSH</span>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-sm text-gray-400 hidden sm:block">
+            Due: <span className={`font-medium ${caseData.dueDate && new Date(caseData.dueDate) < new Date() ? "text-red-400" : "text-white"}`}>{formatDate(caseData.dueDate)}</span>
+          </span>
+          <Link
+            href={`/cases/${id}/workticket`}
+            target="_blank"
+            className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Work Ticket
+          </Link>
+          <button
+            onClick={saveCase}
+            disabled={saving}
+            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save Changes
+          </button>
+        </div>
+      </div>
+
+      <div className="px-6 py-5 space-y-6 max-w-7xl mx-auto">
+
+        {/* ── Info cards row ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <InfoCard
+            label="Patient"
+            icon={User}
+            value={
+              <div>
+                <div>{fullPatientName}</div>
+                {(caseData.patientAge || caseData.patientGender) && (
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {[caseData.patientGender, caseData.patientAge ? `Age ${caseData.patientAge}` : null].filter(Boolean).join(" · ")}
+                  </div>
+                )}
+              </div>
+            }
+          />
+          <InfoCard
+            label="Account / Doctor"
+            icon={Building2}
+            value={
+              <div>
+                <div>{caseData.dentalAccount.name}</div>
+                {caseData.dentalAccount.doctorName && (
+                  <div className="text-xs text-gray-500 mt-0.5">Dr. {caseData.dentalAccount.doctorName}</div>
+                )}
+              </div>
+            }
+          />
+          <InfoCard
+            label="Pan Number"
+            icon={Hash}
+            value={caseData.pan ?? "—"}
+          />
+          <InfoCard
+            label="Case Value"
+            icon={Package}
+            value={<span className="text-green-400">{formatCurrency(caseData.totalValue)}</span>}
+          />
+        </div>
+
+        {/* ── Main two-column layout ── */}
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+
+          {/* Left column (3/5) */}
+          <div className="xl:col-span-3 space-y-6">
+
+            {/* Case Details card */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
+              <SectionHeader icon={FileText} title="Case Details" />
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
+                <div>
+                  <span className="text-xs text-gray-500 block mb-0.5">Case Type</span>
+                  <span className="font-medium text-white">{caseData.caseType ?? "NEW"}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 block mb-0.5">Case Origin</span>
+                  <span className="font-medium text-white">{caseData.caseOrigin ?? "LOCAL"}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 block mb-0.5">Route</span>
+                  <div className="flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5 text-gray-500" />
+                    <span className="font-medium text-white">{ROUTE_LABELS[caseData.route ?? "LOCAL"] ?? caseData.route}</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 block mb-0.5">Assigned Tech</span>
+                  <span className="font-medium text-white">{caseData.technician?.name ?? "Unassigned"}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 block mb-0.5">Received</span>
+                  <div className="flex items-center gap-1.5">
+                    <CalendarDays className="w-3.5 h-3.5 text-gray-500" />
+                    <span className="font-medium text-white">{formatDate(caseData.receivedDate)}</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 block mb-0.5">Out of Lab</span>
+                  <div className="flex items-center gap-1.5">
+                    <CalendarDays className="w-3.5 h-3.5 text-gray-500" />
+                    <span className={`font-medium ${caseData.dueDate && new Date(caseData.dueDate) < new Date() ? "text-red-400" : "text-white"}`}>
+                      {formatDate(caseData.dueDate)}
+                    </span>
+                  </div>
+                </div>
+                {caseData.shippedDate && (
+                  <div>
+                    <span className="text-xs text-gray-500 block mb-0.5">Shipped</span>
+                    <span className="font-medium text-teal-400">{formatDate(caseData.shippedDate)}</span>
+                  </div>
+                )}
+                {caseData.shippingCarrier && (
+                  <div>
+                    <span className="text-xs text-gray-500 block mb-0.5">Carrier</span>
+                    <span className="font-medium text-white">{caseData.shippingCarrier}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Products / Items */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-700/50">
+                <SectionHeader icon={Package} title="Products" />
+              </div>
+              {caseData.items.length === 0 ? (
+                <p className="px-5 py-6 text-sm text-gray-500">No products on this case.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700/30">
+                      <th className="text-left px-5 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Teeth</th>
+                      <th className="text-center px-3 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Shade</th>
+                      <th className="text-right px-5 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-700/20">
+                    {caseData.items.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-700/20">
+                        <td className="px-5 py-3 font-medium text-white">{item.productType}</td>
+                        <td className="px-4 py-3 text-gray-400 text-xs">{item.toothNumbers ?? "—"}</td>
+                        <td className="px-3 py-3 text-center text-gray-300">{item.units}</td>
+                        <td className="px-3 py-3 text-gray-400 text-xs">{item.shade ?? "—"}</td>
+                        <td className="px-5 py-3 text-right font-medium text-green-400">{formatCurrency(item.price * item.units)}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-gray-700/50 bg-gray-800/40">
+                      <td colSpan={4} className="px-5 py-2.5 text-xs text-gray-500 text-right">Total</td>
+                      <td className="px-5 py-2.5 text-right font-bold text-green-400">{formatCurrency(caseData.totalValue)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Shade / Material fields */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
+              <SectionHeader icon={Package} title="Shade & Materials" />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium uppercase tracking-wider block mb-1.5">Shade Color</label>
+                  <input
+                    value={shade}
+                    onChange={(e) => setShade(e.target.value)}
+                    placeholder="e.g. A2, B1, C3"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium uppercase tracking-wider block mb-1.5">Soft Tissue Shade</label>
+                  <input
+                    value={softTissueShade}
+                    onChange={(e) => setSoftTissueShade(e.target.value)}
+                    placeholder="e.g. ST-1, Pink"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium uppercase tracking-wider block mb-1.5">Metal Selection</label>
+                  <select
+                    value={metalSelection}
+                    onChange={(e) => setMetalSelection(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500 transition-colors"
+                  >
+                    <option value="">— None / N/A —</option>
+                    <option value="High Noble Yellow">High Noble Yellow</option>
+                    <option value="High Noble White">High Noble White</option>
+                    <option value="Noble">Noble</option>
+                    <option value="Base Metal">Base Metal</option>
+                    <option value="Titanium">Titanium</option>
+                    <option value="Zirconia">Zirconia</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium uppercase tracking-wider block mb-1.5">Materials Received</label>
+                  <input
+                    value={materialsReceived}
+                    onChange={(e) => setMaterialsReceived(e.target.value)}
+                    placeholder="e.g. Impression, Model, Bite"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Internal notes */}
+              <div className="mt-4">
+                <label className="text-xs text-gray-500 font-medium uppercase tracking-wider block mb-1.5">Internal Notes</label>
+                <textarea
+                  value={internalNotes}
+                  onChange={(e) => setInternalNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Lab-only notes (not visible to client)…"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Case Notes */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
+              <SectionHeader icon={FileText} title="Case Notes" />
+
+              {/* Add note */}
+              <div className="flex gap-2 mb-4">
+                <textarea
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && e.metaKey) submitNote(); }}
+                  rows={2}
+                  placeholder="Add a note… (⌘+Enter to submit)"
+                  className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors resize-none"
+                />
+                <button
+                  onClick={submitNote}
+                  disabled={submittingNote || !newNote.trim()}
+                  className="px-3 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg transition-colors self-end"
+                >
+                  {submittingNote ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* Notes list */}
+              <div className="space-y-3">
+                {caseData.caseNotes.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-4">No notes yet.</p>
+                ) : (
+                  caseData.caseNotes.map((note) => (
+                    <div key={note.id} className="bg-gray-900/60 rounded-lg p-3 border border-gray-700/30">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="w-5 h-5 rounded-full bg-sky-600/30 flex items-center justify-center">
+                          <span className="text-sky-400 text-[9px] font-bold">{note.authorName[0]}</span>
+                        </div>
+                        <span className="text-xs font-medium text-gray-300">{note.authorName}</span>
+                        <span className="text-xs text-gray-600 ml-auto flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {new Date(note.createdAt).toLocaleString("en-US", {
+                            month: "short", day: "numeric",
+                            hour: "2-digit", minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right column (2/5) */}
+          <div className="xl:col-span-2 space-y-6">
+
+            {/* Tooth Diagram */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
+              <SectionHeader icon={Activity} title="Tooth Diagram" />
+              <ToothDiagram
+                selected={selectedTeeth}
+                missing={missingTeeth}
+                onChange={(s, m) => { setSelectedTeeth(s); setMissingTeeth(m); }}
+              />
+            </div>
+
+            {/* Department Schedule */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-700/50 flex items-center gap-2">
+                <Wrench className="w-4 h-4 text-sky-400" />
+                <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Schedule</h2>
+                {!hasSchedule && (
+                  <button
+                    onClick={generateSchedule}
+                    disabled={generatingSchedule}
+                    className="ml-auto flex items-center gap-1.5 text-xs bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    {generatingSchedule
+                      ? <RefreshCw className="w-3 h-3 animate-spin" />
+                      : <Plus className="w-3 h-3" />}
+                    Generate Schedule
+                  </button>
+                )}
+                {hasSchedule && (
+                  <button
+                    onClick={generateSchedule}
+                    disabled={generatingSchedule}
+                    title="Regenerate all steps"
+                    className="ml-auto flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${generatingSchedule ? "animate-spin" : ""}`} />
+                    Regenerate
+                  </button>
+                )}
+              </div>
+
+              {!hasSchedule ? (
+                <div className="px-5 py-10 text-center">
+                  <Wrench className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No schedule yet.</p>
+                  <p className="text-xs text-gray-600 mt-1">Click &ldquo;Generate Schedule&rdquo; to create department steps.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-700/30">
+                  {caseData.schedule.map((step) => (
+                    <div key={step.id} className="px-4 py-3">
+                      {/* Department name + status icon */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`flex items-center gap-1 text-xs font-medium ${STEP_STATUS_STYLES[step.status]?.split(" ")[1] ?? "text-gray-400"}`}>
+                          {STEP_ICONS[step.status]}
+                        </span>
+                        <span className="text-sm font-semibold text-white">{step.department}</span>
+                        <div className="ml-auto">
+                          <select
+                            value={step.status}
+                            onChange={(e) => updateStep(step.id, "status", e.target.value)}
+                            className={`text-xs px-2 py-1 rounded-full border font-medium bg-transparent cursor-pointer focus:outline-none transition-all ${STEP_STATUS_STYLES[step.status]}`}
+                          >
+                            {STEP_STATUS_OPTIONS.map((s) => (
+                              <option key={s} value={s} className="bg-gray-800 text-white">{s.replace("_", " ")}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Technician + dates */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-gray-600 block mb-0.5">Technician</label>
+                          <select
+                            value={step.technicianId ?? ""}
+                            onChange={(e) => updateStep(step.id, "technicianId", e.target.value || "")}
+                            className="w-full text-xs px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:border-sky-500"
+                          >
+                            <option value="">Unassigned</option>
+                            {technicians.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-600 block mb-0.5">Scheduled Date</label>
+                          <input
+                            type="date"
+                            value={step.scheduledDate ? step.scheduledDate.slice(0, 10) : ""}
+                            onChange={(e) => updateStep(step.id, "scheduledDate", e.target.value ? new Date(e.target.value).toISOString() : "")}
+                            className="w-full text-xs px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:border-sky-500"
+                          />
+                        </div>
+                      </div>
+
+                      {step.completedDate && (
+                        <p className="text-[10px] text-green-500 mt-1.5 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Completed {formatDate(step.completedDate)}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Audit Log ── */}
+        <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-700/50">
+            <SectionHeader icon={Activity} title="Audit Log" />
+          </div>
+          {caseData.audits.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-gray-500 text-center">No audit entries.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700/30">
+                    <th className="text-left px-5 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wider">By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700/20">
+                  {caseData.audits.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-gray-700/10 transition-colors">
+                      <td className="px-5 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                        {new Date(entry.createdAt).toLocaleString("en-US", {
+                          month: "short", day: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className="text-xs font-medium text-gray-300">
+                          {ACTION_LABELS[entry.action] ?? entry.action}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-gray-500 max-w-xs truncate">
+                        {entry.details ?? "—"}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">
+                        {entry.authorName}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

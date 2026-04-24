@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  name          String?
+  email         String        @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  role          String        @default("STAFF")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  authAccounts  AuthAccount[]
+  sessions      Session[]
+  technician    Technician?
+}
+
+model AuthAccount {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model DentalAccount {
+  id         String   @id @default(cuid())
+  name       String
+  doctorName String?
+  email      String?
+  phone      String?
+  fax        String?
+  address    String?
+  city       String?
+  state      String?
+  zip        String?
+  notes      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  cases      Case[]
+  invoices   Invoice[]
+}
+
+model Case {
+  id              String        @id @default(cuid())
+  caseNumber      String        @unique
+  patientName     String
+  patientFirst    String?
+  patientMI       String?
+  patientLast     String?
+  patientAge      Int?
+  patientGender   String?
+  dentalAccountId String
+  dentalAccount   DentalAccount @relation(fields: [dentalAccountId], references: [id])
+  technicianId    String?
+  technician      Technician?   @relation(fields: [technicianId], references: [id])
+  status          String        @default("INCOMING")
+  priority        String        @default("NORMAL")
+  caseType        String        @default("NEW")
+  caseOrigin      String        @default("LOCAL")
+  route           String        @default("LOCAL")
+  rushOrder       Boolean       @default(false)
+  tryIn           Boolean       @default(false)
+  tryInLeadDays   Int?
+  caseGuarantee   Boolean       @default(false)
+  receivedDate    DateTime      @default(now())
+  dueDate         DateTime?
+  shippedDate     DateTime?
+  pan             String?
+  shade           String?
+  softTissueShade String?
+  metalSelection  String?
+  selectedTeeth   String?
+  missingTeeth    String?
+  notes           String?
+  internalNotes   String?
+  materialsReceived String?
+  shippingAddress String?
+  shippingCarrier String?
+  shippingTime    String?
+  totalValue      Float         @default(0)
+  isPaid          Boolean       @default(false)
+  invoiceNumber   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  items               CaseItem[]
+  caseNotes           CaseNote[]
+  schedule            DeptSchedule[]
+  audits              CaseAudit[]
+  techActivities      TechActivity[]
+  invoices            Invoice[]
+  shopifyOrder        ShopifyOrder?
+  fdaLots             FDALot[]
+}
+
+model FDALot {
+  id           String   @id @default(cuid())
+  caseId       String
+  case         Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  itemName     String
+  manufacturer String?
+  lotNumber    String
+  userName     String   @default("Staff")
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CaseItem {
+  id           String   @id @default(cuid())
+  caseId       String
+  case         Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  productType  String
+  toothNumbers String?
+  units        Int      @default(1)
+  shade        String?
+  material     String?
+  notes        String?
+  price        Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CaseNote {
+  id         String   @id @default(cuid())
+  caseId     String
+  case       Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  content    String
+  authorName String   @default("System")
+  createdAt  DateTime @default(now())
+}
+
+model DeptSchedule {
+  id            String      @id @default(cuid())
+  caseId        String
+  case          Case        @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  department    String
+  sortOrder     Int         @default(0)
+  technicianId  String?
+  technician    Technician? @relation(fields: [technicianId], references: [id])
+  status        String      @default("SCHEDULED")
+  scheduledDate DateTime?
+  completedDate DateTime?
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model CaseAudit {
+  id         String   @id @default(cuid())
+  caseId     String
+  case       Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  action     String
+  details    String?
+  authorName String   @default("System")
+  createdAt  DateTime @default(now())
+}
+
+model TechActivity {
+  id           String     @id @default(cuid())
+  technicianId String
+  technician   Technician @relation(fields: [technicianId], references: [id])
+  caseId       String?
+  case         Case?      @relation(fields: [caseId], references: [id])
+  scheduleId   String?
+  type         String
+  notes        String?
+  createdAt    DateTime   @default(now())
+}
+
+model ShopifyOrder {
+  id                 String    @id @default(cuid())
+  shopifyOrderId     String    @unique
+  shopifyOrderNumber String
+  status             String    @default("PENDING")
+  caseId             String?   @unique
+  case               Case?     @relation(fields: [caseId], references: [id])
+  customerName       String?
+  customerEmail      String?
+  totalPrice         Float     @default(0)
+  itemCount          Int       @default(0)
+  tags               String?
+  rawData            String
+  shopifyCreatedAt   DateTime
+  importedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  caseId          String
+  case            Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  dentalAccountId String
+  dentalAccount   DentalAccount @relation(fields: [dentalAccountId], references: [id])
+  invoiceNumber   String        @unique
+  invoiceDate     DateTime      @default(now())
+  type            String        @default("STANDARD")
+  subTotal        Float         @default(0)
+  taxTotal        Float         @default(0)
+  discountTotal   Float         @default(0)
+  remakeTotal     Float         @default(0)
+  netTotal        Float         @default(0)
+  invoiceTotal    Float         @default(0)
+  balance         Float         @default(0)
+  status          String        @default("OPEN")
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  payments        Payment[]
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount        Float
+  dateApplied   DateTime @default(now())
+  checkNumber   String?
+  paymentType   String   @default("CHECK")
+  notes         String?
+  referenceId   String?
+  accountNumber String?
+  createdAt     DateTime @default(now())
+}
+
+model Technician {
+  id            String         @id @default(cuid())
+  name          String
+  specialty     String?
+  userId        String?        @unique
+  user          User?          @relation(fields: [userId], references: [id])
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  cases         Case[]
+  schedules     DeptSchedule[]
+  activities    TechActivity[]
+}

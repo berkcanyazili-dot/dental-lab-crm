@@ -298,6 +298,21 @@ model Case {
   invoices          Invoice[]
   shopifyOrder      ShopifyOrder?
   fdaLots           FDALot[]
+  attachments       Attachment[]
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  caseId      String
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fileName    String
+  fileUrl     String
+  fileType    String
+  uploadedBy  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([caseId, createdAt])
 }
 
 model FDALot {

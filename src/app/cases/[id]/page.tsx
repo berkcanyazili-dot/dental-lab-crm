@@ -7,7 +7,7 @@ import {
   ArrowLeft, ChevronDown, Save, RefreshCw, Plus, Send,
   CalendarDays, Clock, Package, Truck, User, Building2,
   FileText, Activity, Wrench, CheckCircle2, Circle,
-  AlertCircle, Loader2, Hash, Printer,
+  AlertCircle, Loader2, Hash, Printer, Link2,
 } from "lucide-react";
 import ToothDiagram from "@/components/ui/ToothDiagram";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@/lib/constants";
@@ -60,6 +60,15 @@ interface FDALotEntry {
   createdAt: string;
 }
 
+interface AttachmentEntry {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  uploadedBy: string;
+  createdAt: string;
+}
+
 interface Technician {
   id: string;
   name: string;
@@ -104,6 +113,7 @@ interface CaseDetail {
   schedule: ScheduleStep[];
   audits: AuditEntry[];
   fdaLots?: FDALotEntry[];
+  attachments?: AttachmentEntry[];
 }
 
 /* ─── Helpers ───────────────────────────────────────────────── */
@@ -139,6 +149,8 @@ const ACTION_LABELS: Record<string, string> = {
   SCHEDULE_UPDATED:    "Schedule Updated",
   TECH_CHECKIN:        "Tech Checked In",
   TECH_CHECKOUT:       "Tech Checked Out",
+  ATTACHMENT_ADDED:    "Attachment Added",
+  FDA_LOT_ADDED:       "FDA Lot Added",
 };
 
 function InfoCard({ label, value, icon: Icon }: { label: string; value: React.ReactNode; icon?: React.ElementType }) {
@@ -189,6 +201,11 @@ export default function CaseDetailPage() {
   const [fdaManufacturer, setFdaManufacturer] = useState("");
   const [fdaLotNumber, setFdaLotNumber] = useState("");
   const [submittingFdaLot, setSubmittingFdaLot] = useState(false);
+  const [attachmentFileName, setAttachmentFileName] = useState("");
+  const [attachmentFileUrl, setAttachmentFileUrl] = useState("");
+  const [attachmentFileType, setAttachmentFileType] = useState<AttachmentEntry["fileType"]>("other");
+  const [submittingAttachment, setSubmittingAttachment] = useState(false);
+  const [attachmentMessage, setAttachmentMessage] = useState("");
 
   const load = useCallback(async () => {
     const [caseRes, techRes] = await Promise.all([
@@ -286,6 +303,37 @@ export default function CaseDetailPage() {
     setFdaLotNumber("");
     await load();
     setSubmittingFdaLot(false);
+  };
+
+  const submitAttachment = async () => {
+    if (!attachmentFileName.trim() || !attachmentFileUrl.trim()) return;
+
+    setSubmittingAttachment(true);
+    setAttachmentMessage("");
+
+    const response = await fetch(`/api/cases/${id}/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: attachmentFileName.trim(),
+        fileUrl: attachmentFileUrl.trim(),
+        fileType: attachmentFileType,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      setAttachmentMessage(data?.error ?? "Attachment could not be saved.");
+      setSubmittingAttachment(false);
+      return;
+    }
+
+    setAttachmentFileName("");
+    setAttachmentFileUrl("");
+    setAttachmentFileType("other");
+    setAttachmentMessage("Attachment saved.");
+    await load();
+    setSubmittingAttachment(false);
   };
 
   /* ─── Loading state ──────────────────────────────────────── */
@@ -674,6 +722,109 @@ export default function CaseDetailPage() {
                           <td className="px-3 py-2.5 font-mono text-yellow-300">{lot.lotNumber}</td>
                           <td className="px-3 py-2.5 text-gray-400">{lot.userName}</td>
                           <td className="px-3 py-2.5 text-xs text-gray-500">{formatDate(lot.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Attachments */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
+              <SectionHeader
+                icon={Package}
+                title="Attachments"
+                action={(
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAttachmentMessage("Binary upload will plug into this button once S3 or UploadThing is configured.")
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Upload File
+                  </button>
+                )}
+              />
+
+              <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-[1fr_1.3fr_140px_auto]">
+                <input
+                  value={attachmentFileName}
+                  onChange={(e) => setAttachmentFileName(e.target.value)}
+                  placeholder="File name"
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 transition-colors focus:outline-none focus:border-sky-500"
+                />
+                <input
+                  value={attachmentFileUrl}
+                  onChange={(e) => setAttachmentFileUrl(e.target.value)}
+                  placeholder="External file URL"
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 transition-colors focus:outline-none focus:border-sky-500"
+                />
+                <select
+                  value={attachmentFileType}
+                  onChange={(e) => setAttachmentFileType(e.target.value as AttachmentEntry["fileType"])}
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white transition-colors focus:outline-none focus:border-sky-500"
+                >
+                  <option value="other">Other</option>
+                  <option value="stl">STL / 3D</option>
+                  <option value="pdf">PDF</option>
+                  <option value="image">Image</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={submitAttachment}
+                  disabled={submittingAttachment || !attachmentFileName.trim() || !attachmentFileUrl.trim()}
+                  className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+                >
+                  {submittingAttachment ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Save Link"}
+                </button>
+              </div>
+
+              {attachmentMessage && (
+                <p className={`mb-4 text-sm ${attachmentMessage.includes("saved") ? "text-green-400" : "text-amber-300"}`}>
+                  {attachmentMessage}
+                </p>
+              )}
+
+              {!caseData.attachments?.length ? (
+                <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-4 py-8 text-center">
+                  <p className="text-sm text-gray-300">No attachments uploaded yet.</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    You can register external file links now. Direct binary upload will plug into this panel next.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-700/30">
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">File</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Type</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Uploaded By</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Uploaded</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Open</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-700/20">
+                      {caseData.attachments.map((attachment) => (
+                        <tr key={attachment.id} className="hover:bg-gray-700/10 transition-colors">
+                          <td className="px-3 py-2.5 font-medium text-white">{attachment.fileName}</td>
+                          <td className="px-3 py-2.5 uppercase text-gray-400">{attachment.fileType}</td>
+                          <td className="px-3 py-2.5 text-gray-400">{attachment.uploadedBy}</td>
+                          <td className="px-3 py-2.5 text-xs text-gray-500">{formatDate(attachment.createdAt)}</td>
+                          <td className="px-3 py-2.5">
+                            <a
+                              href={attachment.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-sky-400 transition-colors hover:text-sky-300"
+                            >
+                              <Link2 className="h-3.5 w-3.5" />
+                              Open
+                            </a>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

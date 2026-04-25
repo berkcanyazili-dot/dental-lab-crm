@@ -196,6 +196,7 @@ export default function CaseDetailPage() {
   const [caseData, setCaseData] = useState<CaseDetail | null>(null);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [generatingSchedule, setGeneratingSchedule] = useState(false);
 
@@ -222,23 +223,40 @@ export default function CaseDetailPage() {
   const [selectedStlUrl, setSelectedStlUrl] = useState("");
 
   const load = useCallback(async () => {
-    const [caseRes, techRes] = await Promise.all([
-      fetch(`/api/cases/${id}`),
-      fetch("/api/technicians"),
-    ]);
-    const c: CaseDetail = await caseRes.json();
-    const t: Technician[] = await techRes.json();
-    setCaseData(c);
-    setTechnicians(Array.isArray(t) ? t : []);
-    setEditStatus(c.status);
-    setSelectedTeeth(c.selectedTeeth ? JSON.parse(c.selectedTeeth) : []);
-    setMissingTeeth(c.missingTeeth ? JSON.parse(c.missingTeeth) : []);
-    setShade(c.shade ?? "");
-    setSoftTissueShade(c.softTissueShade ?? "");
-    setMetalSelection(c.metalSelection ?? "");
-    setMaterialsReceived(c.materialsReceived ?? "");
-    setInternalNotes(c.internalNotes ?? "");
-    setLoading(false);
+    setLoading(true);
+    setLoadError("");
+
+    try {
+      const [caseRes, techRes] = await Promise.all([
+        fetch(`/api/cases/${id}`),
+        fetch("/api/technicians"),
+      ]);
+
+      if (!caseRes.ok) {
+        const errorData = await caseRes.json().catch(() => null);
+        throw new Error(errorData?.error ?? "Case could not be loaded.");
+      }
+
+      const c: CaseDetail = await caseRes.json();
+      const t: Technician[] = techRes.ok ? await techRes.json() : [];
+
+      setCaseData(c);
+      setTechnicians(Array.isArray(t) ? t : []);
+      setEditStatus(c.status);
+      setSelectedTeeth(c.selectedTeeth ? JSON.parse(c.selectedTeeth) : []);
+      setMissingTeeth(c.missingTeeth ? JSON.parse(c.missingTeeth) : []);
+      setShade(c.shade ?? "");
+      setSoftTissueShade(c.softTissueShade ?? "");
+      setMetalSelection(c.metalSelection ?? "");
+      setMaterialsReceived(c.materialsReceived ?? "");
+      setInternalNotes(c.internalNotes ?? "");
+    } catch (error) {
+      setCaseData(null);
+      setTechnicians([]);
+      setLoadError(error instanceof Error ? error.message : "Case could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
@@ -373,6 +391,24 @@ export default function CaseDetailPage() {
 
   /* ─── Loading state ──────────────────────────────────────── */
   if (loading || !caseData) {
+    if (!loading && !caseData) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-gray-900 px-6">
+          <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-800/60 p-6 text-center">
+            <p className="text-lg font-semibold text-white">Case not available</p>
+            <p className="mt-2 text-sm text-gray-400">{loadError || "We couldn't load this case."}</p>
+            <button
+              type="button"
+              onClick={() => router.push("/incoming")}
+              className="mt-4 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500"
+            >
+              Back to Cases
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500" />

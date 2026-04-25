@@ -55,9 +55,21 @@ function validationError(error: z.ZodError) {
   );
 }
 
+function buildCaseLookupWhere(rawId: string): Prisma.CaseWhereInput {
+  const normalized = rawId.trim();
+
+  return {
+    OR: [
+      { id: normalized },
+      { caseNumber: normalized },
+      { caseNumber: normalized.toUpperCase() },
+    ],
+  };
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const c = await prisma.case.findUnique({
-    where: { id: params.id },
+  const c = await prisma.case.findFirst({
+    where: buildCaseLookupWhere(params.id),
     include: {
       dentalAccount: true,
       technician: true,
@@ -81,9 +93,17 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const { _authorName, ...body } = parsed.data;
   const authorName = _authorName ?? "Staff";
 
-  const before = await prisma.case.findUnique({ where: { id: params.id } });
+  const existingCase = await prisma.case.findFirst({
+    where: buildCaseLookupWhere(params.id),
+    select: { id: true },
+  });
+  if (!existingCase) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const before = await prisma.case.findUnique({ where: { id: existingCase.id } });
   const updated = await prisma.case.update({
-    where: { id: params.id },
+    where: { id: existingCase.id },
     data: body as Prisma.CaseUncheckedUpdateInput,
     include: {
       dentalAccount: true,
@@ -107,7 +127,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (changedFields) {
     await prisma.caseAudit.create({
       data: {
-        caseId: params.id,
+        caseId: existingCase.id,
         action: "CASE_UPDATED",
         details: changedFields,
         authorName,
@@ -119,7 +139,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (body.status === "SHIPPED" && before?.status !== "SHIPPED" && isConfigured()) {
     try {
       const shopifyOrder = await prisma.shopifyOrder.findUnique({
-        where: { caseId: params.id },
+        where: { caseId: existingCase.id },
       });
       if (shopifyOrder) {
         await fulfillShopifyOrder(
@@ -129,7 +149,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         );
         await prisma.caseAudit.create({
           data: {
-            caseId: params.id,
+            caseId: existingCase.id,
             action: "SHOPIFY_FULFILLED",
             details: `Shopify order #${shopifyOrder.shopifyOrderNumber} marked fulfilled`,
             authorName,
@@ -146,6 +166,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  await prisma.case.delete({ where: { id: params.id } });
+  const existingCase = await prisma.case.findFirst({
+    where: buildCaseLookupWhere(params.id),
+    select: { id: true },
+  });
+  if (!existingCase) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  await prisma.case.delete({ where: { id: existingCase.id } });
   return NextResponse.json({ success: true });
 }

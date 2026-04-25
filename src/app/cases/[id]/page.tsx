@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft, ChevronDown, Save, RefreshCw, Plus, Send,
   CalendarDays, Clock, Package, Truck, User, Building2,
@@ -12,6 +13,18 @@ import {
 import ToothDiagram from "@/components/ui/ToothDiagram";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
+
+const STLViewer = dynamic(() => import("@/components/ui/STLViewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[320px] items-center justify-center rounded-xl border border-gray-700 bg-gray-950">
+      <div className="flex items-center gap-2 text-sm text-gray-300">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-500 border-t-sky-400" />
+        Loading STL viewer...
+      </div>
+    </div>
+  ),
+});
 
 /* ─── Types ─────────────────────────────────────────────────── */
 interface CaseItem {
@@ -206,6 +219,7 @@ export default function CaseDetailPage() {
   const [attachmentFileType, setAttachmentFileType] = useState<AttachmentEntry["fileType"]>("other");
   const [submittingAttachment, setSubmittingAttachment] = useState(false);
   const [attachmentMessage, setAttachmentMessage] = useState("");
+  const [selectedStlUrl, setSelectedStlUrl] = useState("");
 
   const load = useCallback(async () => {
     const [caseRes, techRes] = await Promise.all([
@@ -228,6 +242,27 @@ export default function CaseDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const stlAttachments =
+      caseData?.attachments?.filter(
+        (attachment) =>
+          attachment.fileType.toLowerCase() === "stl" ||
+          attachment.fileUrl.toLowerCase().endsWith(".stl")
+      ) ?? [];
+
+    if (!stlAttachments.length) {
+      if (selectedStlUrl) {
+        setSelectedStlUrl("");
+      }
+      return;
+    }
+
+    const selectedStillExists = stlAttachments.some((attachment) => attachment.fileUrl === selectedStlUrl);
+    if (!selectedStlUrl || !selectedStillExists) {
+      setSelectedStlUrl(stlAttachments[0].fileUrl);
+    }
+  }, [caseData?.attachments, selectedStlUrl]);
 
   /* ─── Save case fields ───────────────────────────────────── */
   const saveCase = async () => {
@@ -351,6 +386,12 @@ export default function CaseDetailPage() {
       .join(" ") || caseData.patientName;
 
   const hasSchedule = caseData.schedule.length > 0;
+  const stlAttachments =
+    caseData.attachments?.filter(
+      (attachment) =>
+        attachment.fileType.toLowerCase() === "stl" ||
+        attachment.fileUrl.toLowerCase().endsWith(".stl")
+    ) ?? [];
 
   return (
     <div className="min-h-screen bg-gray-900 pb-16">
@@ -786,6 +827,31 @@ export default function CaseDetailPage() {
                 <p className={`mb-4 text-sm ${attachmentMessage.includes("saved") ? "text-green-400" : "text-amber-300"}`}>
                   {attachmentMessage}
                 </p>
+              )}
+
+              {stlAttachments.length > 0 && selectedStlUrl && (
+                <div className="mb-4 rounded-xl border border-gray-700/50 bg-gray-900/60 p-3">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                      STL Preview
+                    </span>
+                    {stlAttachments.map((attachment) => (
+                      <button
+                        key={attachment.id}
+                        type="button"
+                        onClick={() => setSelectedStlUrl(attachment.fileUrl)}
+                        className={`rounded-lg px-2.5 py-1 text-xs transition-colors ${
+                          selectedStlUrl === attachment.fileUrl
+                            ? "bg-sky-600 text-white"
+                            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        {attachment.fileName}
+                      </button>
+                    ))}
+                  </div>
+                  <STLViewer fileUrl={selectedStlUrl} className="h-[320px] w-full overflow-hidden rounded-xl border border-gray-700 bg-slate-950" />
+                </div>
               )}
 
               {!caseData.attachments?.length ? (

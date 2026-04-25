@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { DollarSign, PauseCircle, RotateCcw, Building2, TrendingUp } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -31,15 +32,17 @@ function KpiCard({
   icon: Icon,
   color,
   sub,
+  href,
 }: {
   label: string;
   value: string;
   icon: React.ElementType;
   color: string;
   sub?: string;
+  href?: string;
 }) {
-  return (
-    <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 flex flex-col gap-3">
+  const content = (
+    <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 flex flex-col gap-3 transition-colors hover:bg-gray-800 hover:border-gray-600">
       <div className="flex items-center justify-between">
         <span className="text-sm text-gray-400 font-medium">{label}</span>
         <div className={`p-2 rounded-lg ${color}`}>
@@ -51,6 +54,14 @@ function KpiCard({
         {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
       </div>
     </div>
+  );
+
+  if (!href) return content;
+
+  return (
+    <Link href={href} className="block">
+      {content}
+    </Link>
   );
 }
 
@@ -94,6 +105,7 @@ export default function DashboardPage() {
           icon={DollarSign}
           color="bg-sky-500/20 text-sky-400"
           sub="Cases in work in progress"
+          href="/wip"
         />
         <KpiCard
           label="WIP Hold"
@@ -101,6 +113,7 @@ export default function DashboardPage() {
           icon={PauseCircle}
           color="bg-orange-500/20 text-orange-400"
           sub="Cases on hold"
+          href="/hold"
         />
         <KpiCard
           label="Remake Dollars"
@@ -108,6 +121,7 @@ export default function DashboardPage() {
           icon={RotateCcw}
           color="bg-red-500/20 text-red-400"
           sub="Cases being remade"
+          href="/remakes"
         />
         <KpiCard
           label="WIP Accounts"
@@ -115,6 +129,7 @@ export default function DashboardPage() {
           icon={Building2}
           color="bg-purple-500/20 text-purple-400"
           sub="Active accounts in lab"
+          href="/accounts"
         />
       </div>
 
@@ -147,7 +162,12 @@ export default function DashboardPage() {
                   data.accountsInLab.map((acc) => (
                     <tr key={acc.id} className="hover:bg-gray-700/20 transition-colors">
                       <td className="px-5 py-3">
-                        <p className="font-medium text-white">{acc.name}</p>
+                        <Link
+                          href={`/wip?search=${encodeURIComponent(acc.name)}`}
+                          className="font-medium text-white hover:text-sky-300"
+                        >
+                          {acc.name}
+                        </Link>
                         {acc.doctorName && <p className="text-xs text-gray-500">Dr. {acc.doctorName}</p>}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -195,7 +215,14 @@ export default function DashboardPage() {
                     .sort((a, b) => b.count - a.count)
                     .map((prod) => (
                       <tr key={prod.productType} className="hover:bg-gray-700/20 transition-colors">
-                        <td className="px-5 py-3 font-medium text-white">{prod.productType}</td>
+                        <td className="px-5 py-3 font-medium text-white">
+                          <Link
+                            href={`/cases-in-lab?search=${encodeURIComponent(prod.productType)}`}
+                            className="hover:text-sky-300"
+                          >
+                            {prod.productType}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3 text-center">
                           <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-xs font-bold">
                             {prod.count}

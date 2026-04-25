@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Search, ChevronUp, ChevronDown } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -34,12 +34,17 @@ type SortKey = "caseNumber" | "patientName" | "receivedDate" | "dueDate" | "tota
 interface Props {
   cases: Case[];
   onStatusChange?: (id: string, status: string) => void;
+  initialSearch?: string;
 }
 
-export default function CasesTable({ cases, onStatusChange }: Props) {
-  const [search, setSearch] = useState("");
+export default function CasesTable({ cases, onStatusChange, initialSearch = "" }: Props) {
+  const [search, setSearch] = useState(initialSearch);
   const [sortKey, setSortKey] = useState<SortKey>("receivedDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  useEffect(() => {
+    setSearch(initialSearch);
+  }, [initialSearch]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -52,7 +57,8 @@ export default function CasesTable({ cases, onStatusChange }: Props) {
       return (
         c.caseNumber.toLowerCase().includes(q) ||
         c.patientName.toLowerCase().includes(q) ||
-        c.dentalAccount.name.toLowerCase().includes(q)
+        c.dentalAccount.name.toLowerCase().includes(q) ||
+        c.items.some((item) => item.productType.toLowerCase().includes(q))
       );
     })
     .sort((a, b) => {

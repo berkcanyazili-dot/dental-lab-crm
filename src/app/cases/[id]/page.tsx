@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import debounce from "lodash.debounce";
 import {
   ArrowLeft, ChevronDown, Save, RefreshCw, Plus, Send,
   CalendarDays, Clock, Package, Truck, User, Building2,
   FileText, Activity, Wrench, CheckCircle2, Circle,
   AlertCircle, Loader2, Hash, Printer, Link2,
 } from "lucide-react";
+import { Toaster, toast } from "react-hot-toast";
 import ToothDiagram from "@/components/ui/ToothDiagram";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -198,6 +200,7 @@ export default function CaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [generatingSchedule, setGeneratingSchedule] = useState(false);
 
   const [editStatus, setEditStatus] = useState("");
@@ -221,6 +224,28 @@ export default function CaseDetailPage() {
   const [submittingAttachment, setSubmittingAttachment] = useState(false);
   const [attachmentMessage, setAttachmentMessage] = useState("");
   const [selectedStlUrl, setSelectedStlUrl] = useState("");
+  const hasInitializedAutosaveRef = useRef(false);
+  const lastSavedSnapshotRef = useRef("");
+
+  const autoSavePayload = useMemo(() => ({
+    status: editStatus,
+    shade: shade || null,
+    softTissueShade: softTissueShade || null,
+    metalSelection: metalSelection || null,
+    materialsReceived: materialsReceived || null,
+    internalNotes: internalNotes || null,
+    selectedTeeth: JSON.stringify(selectedTeeth),
+    missingTeeth: JSON.stringify(missingTeeth),
+  }), [
+    editStatus,
+    shade,
+    softTissueShade,
+    metalSelection,
+    materialsReceived,
+    internalNotes,
+    selectedTeeth,
+    missingTeeth,
+  ]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -250,6 +275,18 @@ export default function CaseDetailPage() {
       setMetalSelection(c.metalSelection ?? "");
       setMaterialsReceived(c.materialsReceived ?? "");
       setInternalNotes(c.internalNotes ?? "");
+      lastSavedSnapshotRef.current = JSON.stringify({
+        status: c.status,
+        shade: c.shade ?? null,
+        softTissueShade: c.softTissueShade ?? null,
+        metalSelection: c.metalSelection ?? null,
+        materialsReceived: c.materialsReceived ?? null,
+        internalNotes: c.internalNotes ?? null,
+        selectedTeeth: c.selectedTeeth ?? "[]",
+        missingTeeth: c.missingTeeth ?? "[]",
+      });
+      hasInitializedAutosaveRef.current = true;
+      setSaveState("idle");
     } catch (error) {
       setCaseData(null);
       setTechnicians([]);
@@ -282,26 +319,75 @@ export default function CaseDetailPage() {
     }
   }, [caseData?.attachments, selectedStlUrl]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const debouncedAutoSave = useMemo(
+    () =>
+      debounce((payload: typeof autoSavePayload) => {
+        void saveCase(payload, false);
+      }, 1000),
+    [saveCase]
+  );
+
+  useEffect(() => {
+    if (!hasInitializedAutosaveRef.current || !caseData) return;
+
+    const snapshot = JSON.stringify(autoSavePayload);
+    if (snapshot === lastSavedSnapshotRef.current) return;
+
+    setSaveState("saving");
+    debouncedAutoSave(autoSavePayload);
+
+    return () => {
+      debouncedAutoSave.cancel();
+    };
+  }, [autoSavePayload, caseData, debouncedAutoSave]);
+
+  useEffect(() => {
+    if (saveState !== "saved") return;
+
+    const timeoutId = window.setTimeout(() => setSaveState("idle"), 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [saveState]);
+
+  useEffect(() => {
+    return () => {
+      debouncedAutoSave.cancel();
+    };
+  }, [debouncedAutoSave]);
+
   /* ─── Save case fields ───────────────────────────────────── */
-  const saveCase = async () => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  async function saveCase(payload = autoSavePayload, showSuccessToast = false) {
     setSaving(true);
-    await fetch(`/api/cases/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status: editStatus,
-        shade: shade || null,
-        softTissueShade: softTissueShade || null,
-        metalSelection: metalSelection || null,
-        materialsReceived: materialsReceived || null,
-        internalNotes: internalNotes || null,
-        selectedTeeth: JSON.stringify(selectedTeeth),
-        missingTeeth: JSON.stringify(missingTeeth),
-      }),
-    });
-    await load();
-    setSaving(false);
-  };
+    setSaveState("saving");
+
+    try {
+      const response = await fetch(`/api/cases/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error ?? "Case could not be saved.");
+      }
+
+      const updatedCase: CaseDetail = await response.json();
+      setCaseData(updatedCase);
+      lastSavedSnapshotRef.current = JSON.stringify(payload);
+      setSaveState("saved");
+
+      if (showSuccessToast) {
+        toast.success("Case saved");
+      }
+    } catch (error) {
+      setSaveState("error");
+      toast.error(error instanceof Error ? error.message : "Case could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   /* ─── Schedule step update ───────────────────────────────── */
   const updateStep = async (stepId: string, field: string, value: string) => {
@@ -431,6 +517,16 @@ export default function CaseDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 pb-16">
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: "#111827",
+            color: "#f9fafb",
+            border: "1px solid #374151",
+          },
+        }}
+      />
 
       {/* ── Top header bar ── */}
       <div className="sticky top-0 z-20 bg-gray-900/95 backdrop-blur border-b border-gray-800 px-6 py-3 flex items-center gap-4">
@@ -472,6 +568,23 @@ export default function CaseDetailPage() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          <span className={`text-sm ${
+            saveState === "saving"
+              ? "text-amber-300"
+              : saveState === "saved"
+                ? "text-green-400"
+                : saveState === "error"
+                  ? "text-red-400"
+                  : "text-gray-500"
+          }`}>
+            {saveState === "saving"
+              ? "Saving..."
+              : saveState === "saved"
+                ? "Saved"
+                : saveState === "error"
+                  ? "Save failed"
+                  : "All changes saved"}
+          </span>
           <span className="text-sm text-gray-400 hidden sm:block">
             Due: <span className={`font-medium ${caseData.dueDate && new Date(caseData.dueDate) < new Date() ? "text-red-400" : "text-white"}`}>{formatDate(caseData.dueDate)}</span>
           </span>
@@ -484,7 +597,7 @@ export default function CaseDetailPage() {
             Work Ticket
           </Link>
           <button
-            onClick={saveCase}
+            onClick={() => saveCase(autoSavePayload, true)}
             disabled={saving}
             className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >

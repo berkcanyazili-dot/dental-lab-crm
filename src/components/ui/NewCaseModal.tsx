@@ -399,7 +399,6 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
           shippingCarrier: data.shippingCarrier || null,
           shippingTime: data.shippingTime || null,
           generateSchedule: data.generateSchedule,
-          _authorName: "Staff",
           items: data.items.map((item) => ({
             productType: item.productType,
             toothNumbers: toothNums || null,

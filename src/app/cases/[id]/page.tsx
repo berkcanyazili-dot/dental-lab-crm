@@ -213,7 +213,6 @@ export default function CaseDetailPage() {
         internalNotes: internalNotes || null,
         selectedTeeth: JSON.stringify(selectedTeeth),
         missingTeeth: JSON.stringify(missingTeeth),
-        _authorName: "Staff",
       }),
     });
     await load();
@@ -225,7 +224,7 @@ export default function CaseDetailPage() {
     await fetch(`/api/cases/${id}/schedule`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: stepId, [field]: value, authorName: "Staff" }),
+      body: JSON.stringify({ id: stepId, [field]: value }),
     });
     await load();
   };
@@ -236,7 +235,7 @@ export default function CaseDetailPage() {
     await fetch(`/api/cases/${id}/schedule`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ generate: true, authorName: "Staff" }),
+      body: JSON.stringify({ generate: true }),
     });
     await load();
     setGeneratingSchedule(false);
@@ -249,7 +248,7 @@ export default function CaseDetailPage() {
     await fetch(`/api/cases/${id}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: newNote.trim(), authorName: "Staff" }),
+      body: JSON.stringify({ content: newNote.trim() }),
     });
     setNewNote("");
     await load();

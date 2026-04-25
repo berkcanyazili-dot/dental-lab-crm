@@ -3,6 +3,7 @@ import { CaseStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createCase } from "@/server/services/cases";
+import { getSessionAuthorName } from "@/server/services/authorship";
 
 const caseItemSchema = z
   .object({
@@ -50,7 +51,6 @@ const createCaseSchema = z
     shippingTime: z.string().trim().min(1).optional().nullable(),
     items: z.array(caseItemSchema).default([]),
     generateSchedule: z.coerce.boolean().default(false),
-    _authorName: z.string().trim().min(1).optional(),
   })
   .strict();
 
@@ -98,7 +98,6 @@ export async function POST(request: NextRequest) {
   const {
     items,
     generateSchedule,
-    _authorName,
     patientName,
     patientFirst,
     patientMI,
@@ -130,6 +129,7 @@ export async function POST(request: NextRequest) {
     shippingCarrier,
     shippingTime,
   } = parsed.data;
+  const authorName = await getSessionAuthorName();
 
   const newCase = await createCase(
     {
@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
       shippingTime,
       items,
       generateSchedule,
-      auditAuthorName: _authorName ?? "Staff",
+      auditAuthorName: authorName,
     },
     {
       dentalAccount: true,

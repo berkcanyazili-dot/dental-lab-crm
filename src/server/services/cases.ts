@@ -1,13 +1,87 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { DeptScheduleStatus, Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getActiveWorkflowTemplates } from "@/server/services/labSettings";
-
-const FALLBACK_WORKFLOW = ["Scan", "Design", "Milling", "C&B QC", "Stain & Glaze", "Final QC", "Shipping"];
+import { calculateDueDate } from "@/lib/utils";
 
 type TransactionClient = Omit<
   PrismaClient,
   "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
 >;
+
+/**
+ * Build schedule step create-inputs for a case.
+ *
+ * Strategy:
+ *  1. Look up the ordered product names in the ServiceProduct catalog.
+ *  2. Collect the unique departments attached to those products.
+ *  3. Keep only the active WorkflowStepTemplates whose department appears in that set.
+ *  4. If no catalog match survives the filter, fall back to any legacy department labels
+ *     stored in `item.notes`.
+ *  5. If we still have no match, fall back to ALL active templates so the case always gets
+ *     a usable schedule.
+ */
+async function buildScheduleSteps(
+  tx: TransactionClient,
+  items: CreateCaseItemInput[]
+): Promise<Array<{ department: string; sortOrder: number; status: DeptScheduleStatus }>> {
+  const allTemplates = await getActiveWorkflowTemplates(tx);
+  const orderedProductTypes = Array.from(
+    new Set(items.map((item) => item.productType.trim()).filter(Boolean))
+  );
+
+  const catalogProducts = orderedProductTypes.length
+    ? await tx.serviceProduct.findMany({
+        where: {
+          isActive: true,
+          name: { in: orderedProductTypes },
+        },
+        select: { name: true, department: true },
+      })
+    : [];
+
+  const catalogDepartments = new Set(
+    catalogProducts.map((product) => product.department.trim()).filter(Boolean)
+  );
+
+  // Legacy fallback for items created before the service catalog carried department metadata.
+  const legacyDepartments = new Set(
+    items.map((i) => i.notes?.trim()).filter(Boolean) as string[]
+  );
+
+  const matched =
+    catalogDepartments.size > 0
+      ? allTemplates.filter((template) => catalogDepartments.has(template.department))
+      : legacyDepartments.size > 0
+        ? allTemplates.filter((template) => legacyDepartments.has(template.department))
+        : [];
+
+  const templates = matched.length > 0 ? matched : allTemplates;
+
+  return templates.map((step) => ({
+    department: step.department,
+    sortOrder: step.sortOrder,
+    status: DeptScheduleStatus.SCHEDULED,
+  }));
+}
+
+/**
+ * Resolve the due date for a new case.
+ *
+ * If the caller already supplied a `dueDate`, honour it exactly.
+ * Otherwise, read `defaultTurnaroundDays` from LabSettings and advance
+ * `receivedDate` by that many *business* days (weekends skipped).
+ */
+async function resolveDueDate(
+  tx: TransactionClient,
+  receivedDate: Date,
+  suppliedDueDate: Date | null | undefined
+): Promise<Date> {
+  if (suppliedDueDate != null) return suppliedDueDate;
+
+  const settings = await tx.labSettings.findUnique({ where: { id: "default" } });
+  const turnaroundDays = settings?.defaultTurnaroundDays ?? 7;
+  return calculateDueDate(receivedDate, turnaroundDays);
+}
 
 export interface CreateCaseItemInput {
   productType: string;
@@ -95,7 +169,15 @@ export async function createCaseWithTx(
   const caseNumber = await allocateCaseNumber(tx);
   const totalValue = calculateTotalValue(items);
   const auditDetails = input.auditDetails ?? `Case ${caseNumber} created`;
-  const workflow = input.generateSchedule ? await getActiveWorkflowTemplates(tx) : [];
+
+  // Resolve the receivedDate (default to now) and auto-compute dueDate if not supplied
+  const receivedDate = input.receivedDate ?? new Date();
+  const dueDate = await resolveDueDate(tx, receivedDate, input.dueDate);
+
+  // Build the per-product schedule only when requested
+  const scheduleSteps = input.generateSchedule
+    ? await buildScheduleSteps(tx, items)
+    : [];
 
   return tx.case.create({
     data: {
@@ -117,8 +199,8 @@ export async function createCaseWithTx(
       tryIn: input.tryIn,
       tryInLeadDays: input.tryInLeadDays,
       caseGuarantee: input.caseGuarantee,
-      receivedDate: input.receivedDate,
-      dueDate: input.dueDate,
+      receivedDate,
+      dueDate,
       shippedDate: input.shippedDate,
       pan: input.pan,
       shade: input.shade,
@@ -149,22 +231,8 @@ export async function createCaseWithTx(
           },
         ],
       },
-      ...(input.generateSchedule
-        ? {
-            schedule: {
-              create: workflow.length
-                ? workflow.map((step) => ({
-                    department: step.department,
-                    sortOrder: step.sortOrder,
-                    status: "SCHEDULED",
-                  }))
-                : FALLBACK_WORKFLOW.map((department, sortOrder) => ({
-                    department,
-                    sortOrder,
-                    status: "SCHEDULED",
-                  })),
-            },
-          }
+      ...(scheduleSteps.length > 0
+        ? { schedule: { create: scheduleSteps } }
         : {}),
     },
     include,

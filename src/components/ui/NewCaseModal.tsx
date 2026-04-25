@@ -161,7 +161,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 // Accept register() spread via ...rest; discard any passed className to keep styles stable
-function TextInput({ type = "text", className: _c, ...rest }: React.InputHTMLAttributes<HTMLInputElement>) {
+function TextInput({ type = "text", ...rest }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "className">) {
   return (
     <input
       type={type}
@@ -171,7 +171,8 @@ function TextInput({ type = "text", className: _c, ...rest }: React.InputHTMLAtt
   );
 }
 
-function SelectInput({ children, className: _c, ...rest }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function SelectInput({ children, className, ...rest }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...rest}
@@ -202,9 +203,9 @@ function Panel({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function Checkbox({
   label,
-  className: _c,
   ...rest
 }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
   return (
@@ -244,7 +245,7 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
     watch,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
+  } = useForm<z.input<typeof newCaseSchema>, unknown, z.output<typeof newCaseSchema>>({
     resolver: zodResolver(newCaseSchema),
     defaultValues: {
       caseType: "NEW",

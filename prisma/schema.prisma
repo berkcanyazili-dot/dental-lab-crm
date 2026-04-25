@@ -7,6 +7,100 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  STAFF
+  TECHNICIAN
+}
+
+enum CaseStatus {
+  INCOMING
+  IN_LAB
+  WIP
+  HOLD
+  REMAKE
+  COMPLETE
+  SHIPPED
+}
+
+enum PriorityLevel {
+  NORMAL
+  RUSH
+  STAT
+}
+
+enum CaseType {
+  NEW
+  REMAKE
+  REPAIR
+}
+
+enum CaseOrigin {
+  LOCAL
+  SHOPIFY
+}
+
+enum CaseRoute {
+  LOCAL
+  SHIP
+  PICKUP
+}
+
+enum DeptScheduleStatus {
+  SCHEDULED
+  READY
+  IN_PROCESS
+  COMPLETE
+}
+
+enum TechActivityType {
+  CHECKIN
+  CHECKOUT
+}
+
+enum ShopifyOrderStatus {
+  PENDING
+  IMPORTED
+  REJECTED
+}
+
+enum InvoiceType {
+  STANDARD
+  CREDIT
+  REMAKE
+}
+
+enum InvoiceStatus {
+  OPEN
+  PARTIAL
+  PAID
+  VOID
+}
+
+enum PaymentType {
+  CHECK
+  CASH
+  CREDIT_CARD
+  ACH
+  OTHER
+}
+
+model NumberSequence {
+  name      String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model ShopifySettings {
+  id               String   @id @default("default")
+  storeUrl         String?
+  adminToken       String?
+  webhookSecret    String?
+  defaultAccountId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
 model User {
   id            String        @id @default(cuid())
   name          String?
@@ -14,7 +108,7 @@ model User {
   emailVerified DateTime?
   password      String?
   image         String?
-  role          String        @default("STAFF")
+  role          UserRole      @default(STAFF)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   authAccounts  AuthAccount[]
@@ -76,55 +170,55 @@ model DentalAccount {
 }
 
 model Case {
-  id              String        @id @default(cuid())
-  caseNumber      String        @unique
-  patientName     String
-  patientFirst    String?
-  patientMI       String?
-  patientLast     String?
-  patientAge      Int?
-  patientGender   String?
-  dentalAccountId String
-  dentalAccount   DentalAccount @relation(fields: [dentalAccountId], references: [id])
-  technicianId    String?
-  technician      Technician?   @relation(fields: [technicianId], references: [id])
-  status          String        @default("INCOMING")
-  priority        String        @default("NORMAL")
-  caseType        String        @default("NEW")
-  caseOrigin      String        @default("LOCAL")
-  route           String        @default("LOCAL")
-  rushOrder       Boolean       @default(false)
-  tryIn           Boolean       @default(false)
-  tryInLeadDays   Int?
-  caseGuarantee   Boolean       @default(false)
-  receivedDate    DateTime      @default(now())
-  dueDate         DateTime?
-  shippedDate     DateTime?
-  pan             String?
-  shade           String?
-  softTissueShade String?
-  metalSelection  String?
-  selectedTeeth   String?
-  missingTeeth    String?
-  notes           String?
-  internalNotes   String?
+  id                String        @id @default(cuid())
+  caseNumber        String        @unique
+  patientName       String
+  patientFirst      String?
+  patientMI         String?
+  patientLast       String?
+  patientAge        Int?
+  patientGender     String?
+  dentalAccountId   String
+  dentalAccount     DentalAccount @relation(fields: [dentalAccountId], references: [id])
+  technicianId      String?
+  technician        Technician?   @relation(fields: [technicianId], references: [id])
+  status            CaseStatus    @default(INCOMING)
+  priority          PriorityLevel @default(NORMAL)
+  caseType          CaseType      @default(NEW)
+  caseOrigin        CaseOrigin    @default(LOCAL)
+  route             CaseRoute     @default(LOCAL)
+  rushOrder         Boolean       @default(false)
+  tryIn             Boolean       @default(false)
+  tryInLeadDays     Int?
+  caseGuarantee     Boolean       @default(false)
+  receivedDate      DateTime      @default(now())
+  dueDate           DateTime?
+  shippedDate       DateTime?
+  pan               String?
+  shade             String?
+  softTissueShade   String?
+  metalSelection    String?
+  selectedTeeth     String?
+  missingTeeth      String?
+  notes             String?
+  internalNotes     String?
   materialsReceived String?
-  shippingAddress String?
-  shippingCarrier String?
-  shippingTime    String?
-  totalValue      Float         @default(0)
-  isPaid          Boolean       @default(false)
-  invoiceNumber   String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  items               CaseItem[]
-  caseNotes           CaseNote[]
-  schedule            DeptSchedule[]
-  audits              CaseAudit[]
-  techActivities      TechActivity[]
-  invoices            Invoice[]
-  shopifyOrder        ShopifyOrder?
-  fdaLots             FDALot[]
+  shippingAddress   String?
+  shippingCarrier   String?
+  shippingTime      String?
+  totalValue        Decimal       @default(0) @db.Decimal(12, 2)
+  isPaid            Boolean       @default(false)
+  invoiceNumber     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  items             CaseItem[]
+  caseNotes         CaseNote[]
+  schedule          DeptSchedule[]
+  audits            CaseAudit[]
+  techActivities    TechActivity[]
+  invoices          Invoice[]
+  shopifyOrder      ShopifyOrder?
+  fdaLots           FDALot[]
 }
 
 model FDALot {
@@ -150,7 +244,7 @@ model CaseItem {
   shade        String?
   material     String?
   notes        String?
-  price        Float    @default(0)
+  price        Decimal  @default(0) @db.Decimal(12, 2)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -165,19 +259,19 @@ model CaseNote {
 }
 
 model DeptSchedule {
-  id            String      @id @default(cuid())
+  id            String             @id @default(cuid())
   caseId        String
-  case          Case        @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  case          Case               @relation(fields: [caseId], references: [id], onDelete: Cascade)
   department    String
-  sortOrder     Int         @default(0)
+  sortOrder     Int                @default(0)
   technicianId  String?
-  technician    Technician? @relation(fields: [technicianId], references: [id])
-  status        String      @default("SCHEDULED")
+  technician    Technician?        @relation(fields: [technicianId], references: [id])
+  status        DeptScheduleStatus @default(SCHEDULED)
   scheduledDate DateTime?
   completedDate DateTime?
   notes         String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 }
 
 model CaseAudit {
@@ -191,34 +285,34 @@ model CaseAudit {
 }
 
 model TechActivity {
-  id           String     @id @default(cuid())
+  id           String           @id @default(cuid())
   technicianId String
-  technician   Technician @relation(fields: [technicianId], references: [id])
+  technician   Technician       @relation(fields: [technicianId], references: [id])
   caseId       String?
-  case         Case?      @relation(fields: [caseId], references: [id])
+  case         Case?            @relation(fields: [caseId], references: [id])
   scheduleId   String?
-  type         String
+  type         TechActivityType
   notes        String?
-  createdAt    DateTime   @default(now())
+  createdAt    DateTime         @default(now())
 }
 
 model ShopifyOrder {
-  id                 String    @id @default(cuid())
-  shopifyOrderId     String    @unique
+  id                 String             @id @default(cuid())
+  shopifyOrderId     String             @unique
   shopifyOrderNumber String
-  status             String    @default("PENDING")
-  caseId             String?   @unique
-  case               Case?     @relation(fields: [caseId], references: [id])
+  status             ShopifyOrderStatus @default(PENDING)
+  caseId             String?            @unique
+  case               Case?              @relation(fields: [caseId], references: [id])
   customerName       String?
   customerEmail      String?
-  totalPrice         Float     @default(0)
-  itemCount          Int       @default(0)
+  totalPrice         Decimal            @default(0) @db.Decimal(12, 2)
+  itemCount          Int                @default(0)
   tags               String?
   rawData            String
   shopifyCreatedAt   DateTime
   importedAt         DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 }
 
 model Invoice {
@@ -229,15 +323,15 @@ model Invoice {
   dentalAccount   DentalAccount @relation(fields: [dentalAccountId], references: [id])
   invoiceNumber   String        @unique
   invoiceDate     DateTime      @default(now())
-  type            String        @default("STANDARD")
-  subTotal        Float         @default(0)
-  taxTotal        Float         @default(0)
-  discountTotal   Float         @default(0)
-  remakeTotal     Float         @default(0)
-  netTotal        Float         @default(0)
-  invoiceTotal    Float         @default(0)
-  balance         Float         @default(0)
-  status          String        @default("OPEN")
+  type            InvoiceType   @default(STANDARD)
+  subTotal        Decimal       @default(0) @db.Decimal(12, 2)
+  taxTotal        Decimal       @default(0) @db.Decimal(12, 2)
+  discountTotal   Decimal       @default(0) @db.Decimal(12, 2)
+  remakeTotal     Decimal       @default(0) @db.Decimal(12, 2)
+  netTotal        Decimal       @default(0) @db.Decimal(12, 2)
+  invoiceTotal    Decimal       @default(0) @db.Decimal(12, 2)
+  balance         Decimal       @default(0) @db.Decimal(12, 2)
+  status          InvoiceStatus @default(OPEN)
   notes           String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -245,17 +339,17 @@ model Invoice {
 }
 
 model Payment {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   invoiceId     String
-  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  amount        Float
-  dateApplied   DateTime @default(now())
+  invoice       Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount        Decimal     @db.Decimal(12, 2)
+  dateApplied   DateTime    @default(now())
   checkNumber   String?
-  paymentType   String   @default("CHECK")
+  paymentType   PaymentType @default(CHECK)
   notes         String?
   referenceId   String?
   accountNumber String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime    @default(now())
 }
 
 model Technician {

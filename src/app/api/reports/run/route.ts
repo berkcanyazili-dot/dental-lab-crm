@@ -16,7 +16,10 @@ export interface ReportResult {
   totals?: Record<string, number>;
 }
 
-function fmt(n: number) { return n; }
+function money(value: unknown) {
+  return Number(value);
+}
+function fmt(n: unknown) { return money(n); }
 function fmtDate(d: Date | string | null) {
   if (!d) return null;
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -44,7 +47,7 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
         orderBy: { invoiceDate: "desc" },
       });
       const rows = invoices.map((inv) => {
-        const paid = inv.payments.reduce((s, p) => s + p.amount, 0);
+        const paid = inv.payments.reduce((s, p) => s + money(p.amount), 0);
         return {
           date: fmtDate(inv.invoiceDate),
           invoice: inv.invoiceNumber,
@@ -89,7 +92,7 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
         const day = fmtDate(c.receivedDate) as string;
         if (!byDay[day]) byDay[day] = { count: 0, value: 0, statuses: {} };
         byDay[day].count++;
-        byDay[day].value += c.totalValue;
+        byDay[day].value += money(c.totalValue);
         byDay[day].statuses[c.status] = (byDay[day].statuses[c.status] ?? 0) + 1;
       }
       const rows = Object.entries(byDay).map(([date, d]) => ({
@@ -116,7 +119,7 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
           { key: "value", label: "Total Value", align: "right", type: "currency" },
         ],
         rows,
-        totals: { cases: cases.length, value: cases.reduce((s, c) => s + c.totalValue, 0) },
+        totals: { cases: cases.length, value: cases.reduce((s, c) => s + money(c.totalValue), 0) },
       };
     }
 
@@ -141,8 +144,8 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
           count: 0, total: 0, paid: 0, balance: 0,
         };
         agg[k].count++;
-        agg[k].total += inv.invoiceTotal;
-        agg[k].balance += inv.balance;
+        agg[k].total += money(inv.invoiceTotal);
+        agg[k].balance += money(inv.balance);
       }
       const rows = Object.values(agg).map((r) => ({ ...r, total: fmt(r.total), balance: fmt(r.balance) }));
       return {
@@ -232,8 +235,8 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
         ],
         rows,
         totals: {
-          total: invoices.reduce((s, i) => s + i.invoiceTotal, 0),
-          balance: invoices.reduce((s, i) => s + i.balance, 0),
+          total: invoices.reduce((s, i) => s + money(i.invoiceTotal), 0),
+          balance: invoices.reduce((s, i) => s + money(i.balance), 0),
         },
       };
     }
@@ -274,8 +277,8 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
         ],
         rows,
         totals: {
-          total: invoices.reduce((s, i) => s + i.invoiceTotal, 0),
-          balance: invoices.reduce((s, i) => s + i.balance, 0),
+          total: invoices.reduce((s, i) => s + money(i.invoiceTotal), 0),
+          balance: invoices.reduce((s, i) => s + money(i.balance), 0),
         },
       };
     }
@@ -317,7 +320,7 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
           { key: "notes", label: "Notes" },
         ],
         rows,
-        totals: { amount: payments.reduce((s, p) => s + p.amount, 0) },
+        totals: { amount: payments.reduce((s, p) => s + money(p.amount), 0) },
       };
     }
 
@@ -330,7 +333,7 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
       for (const item of items) {
         if (!agg[item.productType]) agg[item.productType] = { units: 0, revenue: 0, orders: 0 };
         agg[item.productType].units += item.units;
-        agg[item.productType].revenue += item.price * item.units;
+        agg[item.productType].revenue += money(item.price) * item.units;
         agg[item.productType].orders++;
       }
       const rows = Object.entries(agg)
@@ -369,8 +372,8 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
       for (const item of items) {
         if (!agg[item.productType]) agg[item.productType] = { saleUnits: 0, saleRev: 0, remakeUnits: 0, remakeRev: 0 };
         const isRemake = item.case.caseType === "REMAKE";
-        if (isRemake) { agg[item.productType].remakeUnits += item.units; agg[item.productType].remakeRev += item.price * item.units; }
-        else { agg[item.productType].saleUnits += item.units; agg[item.productType].saleRev += item.price * item.units; }
+        if (isRemake) { agg[item.productType].remakeUnits += item.units; agg[item.productType].remakeRev += money(item.price) * item.units; }
+        else { agg[item.productType].saleUnits += item.units; agg[item.productType].saleRev += money(item.price) * item.units; }
       }
       const rows = Object.entries(agg)
         .sort((a, b) => b[1].saleRev - a[1].saleRev)
@@ -461,7 +464,7 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
         agg[name].caseCount++;
         agg[name].units += c.items.reduce((s, i) => s + i.units, 0);
         agg[name].completedSteps += c.schedule.length;
-        agg[name].value += c.totalValue;
+        agg[name].value += money(c.totalValue);
       }
       const rows = Object.values(agg).sort((a, b) => b.value - a.value).map((r) => ({
         technician: r.name,
@@ -523,7 +526,7 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
           { key: "value", label: "Value", align: "right", type: "currency" },
         ],
         rows,
-        totals: { value: cases.reduce((s, c) => s + c.totalValue, 0) },
+        totals: { value: cases.reduce((s, c) => s + money(c.totalValue), 0) },
       };
     }
 

@@ -1,75 +1,75 @@
 import { NextRequest, NextResponse } from "next/server";
-import { testConnection } from "@/lib/shopify";
+import { z } from "zod";
+import {
+  getShopifySettings,
+  isShopifyConfigured,
+  testShopifyConnection,
+  upsertShopifySettings,
+} from "@/server/services/shopifyImport";
 
-function parseEnv(content: string): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const line of content.split("\n")) {
-    const match = line.match(/^([^#=\s][^=]*?)=(.*)$/);
-    if (!match) continue;
-    const key = match[1].trim();
-    let val = match[2].trim();
-    if (
-      (val.startsWith('"') && val.endsWith('"')) ||
-      (val.startsWith("'") && val.endsWith("'"))
-    ) {
-      val = val.slice(1, -1);
-    }
-    map[key] = val;
-  }
-  return map;
-}
-
-function serializeEnv(vars: Record<string, string>): string {
-  return Object.entries(vars).map(([k, v]) => `${k}="${v}"`).join("\n") + "\n";
-}
-
-// On Vercel the filesystem is read-only — env vars set here persist only for
-// the current serverless invocation. Set them permanently in the Vercel dashboard.
+const shopifySettingsSchema = z
+  .object({
+    action: z.enum(["save", "test"]).optional(),
+    storeUrl: z.string().trim().optional().nullable(),
+    adminToken: z.string().trim().optional().nullable(),
+    webhookSecret: z.string().trim().optional().nullable(),
+    defaultAccountId: z.string().trim().optional().nullable(),
+  })
+  .strict();
 
 export async function GET() {
+  const settings = await getShopifySettings();
+
   return NextResponse.json({
-    storeUrl: process.env.SHOPIFY_STORE_URL ?? "",
-    hasToken: !!process.env.SHOPIFY_ADMIN_TOKEN,
-    hasWebhookSecret: !!process.env.SHOPIFY_WEBHOOK_SECRET,
-    defaultAccountId: process.env.SHOPIFY_DEFAULT_ACCOUNT_ID ?? "",
-    configured: !!(process.env.SHOPIFY_STORE_URL && process.env.SHOPIFY_ADMIN_TOKEN),
+    storeUrl: settings?.storeUrl ?? "",
+    hasToken: !!settings?.adminToken,
+    hasWebhookSecret: !!settings?.webhookSecret,
+    defaultAccountId: settings?.defaultAccountId ?? "",
+    configured: isShopifyConfigured(settings),
   });
 }
 
 export async function POST(req: NextRequest) {
-  const { action, storeUrl, adminToken, webhookSecret, defaultAccountId } =
-    await req.json();
+  const parsed = shopifySettingsSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid Shopify settings payload", issues: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const { action, storeUrl, adminToken, webhookSecret, defaultAccountId } = parsed.data;
+  const savedSettings = await getShopifySettings();
+  const nextSettings = {
+    storeUrl: storeUrl !== undefined ? storeUrl : savedSettings?.storeUrl,
+    adminToken: adminToken || savedSettings?.adminToken,
+    webhookSecret: webhookSecret || savedSettings?.webhookSecret,
+    defaultAccountId:
+      defaultAccountId !== undefined ? defaultAccountId : savedSettings?.defaultAccountId,
+  };
 
   if (action === "test") {
     try {
-      const shop = await testConnection();
+      const shop = await testShopifyConnection(nextSettings);
       return NextResponse.json({ ok: true, shop });
-    } catch (e) {
-      return NextResponse.json({ ok: false, error: String(e) }, { status: 400 });
+    } catch (error) {
+      return NextResponse.json({ ok: false, error: String(error) }, { status: 400 });
     }
   }
 
-  // Update process.env for the lifetime of this serverless invocation
-  if (storeUrl !== undefined) process.env.SHOPIFY_STORE_URL = storeUrl;
-  if (adminToken) process.env.SHOPIFY_ADMIN_TOKEN = adminToken;
-  if (webhookSecret) process.env.SHOPIFY_WEBHOOK_SECRET = webhookSecret;
-  if (defaultAccountId !== undefined) process.env.SHOPIFY_DEFAULT_ACCOUNT_ID = defaultAccountId;
+  const settings = await upsertShopifySettings({
+    storeUrl,
+    adminToken,
+    webhookSecret,
+    defaultAccountId,
+  });
 
-  // Persist to .env for local development only (silently ignored on Vercel)
-  try {
-    const fs = await import("fs");
-    const path = await import("path");
-    const ENV_PATH = path.join(process.cwd(), ".env");
-    const content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
-    const vars = parseEnv(content);
-    if (storeUrl !== undefined) vars.SHOPIFY_STORE_URL = storeUrl;
-    if (adminToken) vars.SHOPIFY_ADMIN_TOKEN = adminToken;
-    if (webhookSecret) vars.SHOPIFY_WEBHOOK_SECRET = webhookSecret;
-    if (defaultAccountId !== undefined) vars.SHOPIFY_DEFAULT_ACCOUNT_ID = defaultAccountId;
-    fs.writeFileSync(ENV_PATH, serializeEnv(vars), "utf8");
-  } catch {
-    // Read-only filesystem on Vercel — expected
-  }
-
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    success: true,
+    storeUrl: settings.storeUrl ?? "",
+    hasToken: !!settings.adminToken,
+    hasWebhookSecret: !!settings.webhookSecret,
+    defaultAccountId: settings.defaultAccountId ?? "",
+    configured: isShopifyConfigured(settings),
+  });
 }

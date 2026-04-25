@@ -223,7 +223,7 @@ async function main() {
       create: {
         ...caseFields,
         items: { create: items },
-      },
+      } as any,
     });
   }
 

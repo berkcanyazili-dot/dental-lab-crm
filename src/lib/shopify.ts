@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { PriorityLevel } from "@prisma/client";
 
 const API_VERSION = "2024-01";
 
@@ -167,7 +168,7 @@ export function mapOrderToCase(order: ShopifyOrderRaw) {
       `${order.customer?.first_name ?? ""} ${order.customer?.last_name ?? ""}`.trim() ||
       "Shopify Customer",
     pan,
-    priority: isRush ? "RUSH" : "NORMAL",
+    priority: isRush ? PriorityLevel.RUSH : PriorityLevel.NORMAL,
     notes: order.note ?? null,
     shippingAddress,
     items,

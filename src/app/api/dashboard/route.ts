@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+function money(value: unknown) {
+  return Number(value);
+}
+
 export async function GET() {
   try {
     const [wipCases, holdCases, remakeCases, accounts, allWipItems] =
@@ -33,9 +37,9 @@ export async function GET() {
         }),
       ]);
 
-    const wipDollars = wipCases.reduce((sum, c) => sum + c.totalValue, 0);
-    const holdDollars = holdCases.reduce((sum, c) => sum + c.totalValue, 0);
-    const remakeDollars = remakeCases.reduce((sum, c) => sum + c.totalValue, 0);
+    const wipDollars = wipCases.reduce((sum, c) => sum + money(c.totalValue), 0);
+    const holdDollars = holdCases.reduce((sum, c) => sum + money(c.totalValue), 0);
+    const remakeDollars = remakeCases.reduce((sum, c) => sum + money(c.totalValue), 0);
 
     const accountsInLab = accounts
       .filter((a) => a.cases.length > 0)
@@ -44,7 +48,7 @@ export async function GET() {
         name: a.name,
         doctorName: a.doctorName,
         caseCount: a.cases.length,
-        totalValue: a.cases.reduce((sum, c) => sum + c.totalValue, 0),
+        totalValue: a.cases.reduce((sum, c) => sum + money(c.totalValue), 0),
       }));
 
     const productCounts: Record<string, { count: number; value: number }> = {};
@@ -53,7 +57,7 @@ export async function GET() {
         productCounts[item.productType] = { count: 0, value: 0 };
       }
       productCounts[item.productType].count += item.units;
-      productCounts[item.productType].value += item.price * item.units;
+      productCounts[item.productType].value += money(item.price) * item.units;
     });
 
     const productsInLab = Object.entries(productCounts).map(([type, data]) => ({

@@ -193,13 +193,20 @@ export default function CheckInPage() {
     setError(null);
     try {
       await Promise.all(
-        Array.from(selected).map((caseId) =>
-          fetch("/api/technicians/checkin", {
+        Array.from(selected).map((caseId) => {
+          const c = cases.find((x) => x.id === caseId);
+          // CHECKOUT needs the currently IN_PROCESS step id so the API can mark it COMPLETE.
+          // CHECKIN: the API auto-finds the next SCHEDULED/READY step when scheduleId is omitted.
+          const scheduleId =
+            type === "CHECKOUT"
+              ? (c?.schedule.find((s) => s.status === "IN_PROCESS")?.id ?? undefined)
+              : undefined;
+          return fetch("/api/technicians/checkin", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ technicianId: selectedTechId, caseId, type }),
-          })
-        )
+            body: JSON.stringify({ technicianId: selectedTechId, caseId, type, scheduleId }),
+          });
+        })
       );
       clearSelection();
       await fetchData();

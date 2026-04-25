@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Building2, Plus, Search, X, Phone, Mail } from "lucide-react";
+import { Building2, Plus, Search, X, Phone, Mail, Trash2 } from "lucide-react";
 
 interface DentalAccount {
   id: string;
@@ -27,6 +27,7 @@ export default function AccountsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -37,6 +38,14 @@ export default function AccountsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Remove account "${name}"? This cannot be undone.`)) return;
+    setDeletingId(id);
+    await fetch(`/api/accounts/${id}`, { method: "DELETE" });
+    setDeletingId(null);
+    load();
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,13 +158,23 @@ export default function AccountsPage() {
             filtered.map((a) => (
               <div key={a.id} className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-white">{a.name}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white truncate">{a.name}</p>
                     {a.doctorName && <p className="text-sm text-gray-400">Dr. {a.doctorName}</p>}
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${a.isActive ? "bg-green-500/20 text-green-400" : "bg-gray-700 text-gray-500"}`}>
-                    {a.isActive ? "Active" : "Inactive"}
-                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${a.isActive ? "bg-green-500/20 text-green-400" : "bg-gray-700 text-gray-500"}`}>
+                      {a.isActive ? "Active" : "Inactive"}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(a.id, a.name)}
+                      disabled={deletingId === a.id}
+                      className="p-1 text-gray-600 hover:text-red-400 transition-colors disabled:opacity-40"
+                      title="Remove account"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-3 space-y-1.5">
                   {a.phone && (

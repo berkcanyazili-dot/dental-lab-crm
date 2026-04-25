@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Users, Plus, X } from "lucide-react";
+import { Users, Plus, X, Trash2 } from "lucide-react";
 
 interface Technician {
   id: string;
@@ -17,6 +17,7 @@ export default function TechniciansPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", specialty: "" });
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -27,6 +28,14 @@ export default function TechniciansPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Remove technician "${name}"? Their activity history will also be deleted.`)) return;
+    setDeletingId(id);
+    await fetch(`/api/technicians/${id}`, { method: "DELETE" });
+    setDeletingId(null);
+    load();
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,9 +125,19 @@ export default function TechniciansPage() {
                   <div className="w-10 h-10 rounded-full bg-sky-600/30 flex items-center justify-center text-sky-400 font-bold text-sm">
                     {t.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${t.isActive ? "bg-green-500/20 text-green-400" : "bg-gray-700 text-gray-500"}`}>
-                    {t.isActive ? "Active" : "Inactive"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${t.isActive ? "bg-green-500/20 text-green-400" : "bg-gray-700 text-gray-500"}`}>
+                      {t.isActive ? "Active" : "Inactive"}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(t.id, t.name)}
+                      disabled={deletingId === t.id}
+                      className="p-1 text-gray-600 hover:text-red-400 transition-colors disabled:opacity-40"
+                      title="Remove technician"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-3">
                   <p className="font-semibold text-white">{t.name}</p>

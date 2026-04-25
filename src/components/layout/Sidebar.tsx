@@ -46,10 +46,10 @@ const navItems = [
   { href: "/settings/lab", label: "Lab Settings", icon: Settings },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ labName = "Dental Lab" }: { labName?: string }) {
   const pathname = usePathname();
 
-  if (pathname === "/login" || pathname.startsWith("/portal") || pathname.startsWith("/tech")) {
+  if (pathname === "/login" || pathname.startsWith("/portal") || pathname === "/tech") {
     return null;
   }
 
@@ -59,8 +59,8 @@ export default function Sidebar() {
         <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-sky-600">
           <FlaskConical className="w-5 h-5 text-white" />
         </div>
-        <div>
-          <p className="text-sm font-bold text-white leading-tight">Dental Lab</p>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-white leading-tight truncate">{labName}</p>
           <p className="text-xs text-gray-500">CRM System</p>
         </div>
       </div>

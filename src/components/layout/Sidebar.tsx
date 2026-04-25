@@ -19,6 +19,7 @@ import {
   Building2,
   ShieldCheck,
   ChevronRight,
+  Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/incoming", label: "Incoming", icon: ArrowDownToLine },
   { href: "/outgoing", label: "Outgoing", icon: ArrowUpFromLine },
+  { href: "/dispatch", label: "Dispatch", icon: Truck },
   { href: "/remakes", label: "Remakes", icon: RotateCcw },
   { href: "/cases-in-lab", label: "Cases In Lab", icon: FlaskConical },
   { href: "/hold", label: "Hold Cases", icon: PauseCircle },

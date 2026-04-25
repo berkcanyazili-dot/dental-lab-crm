@@ -47,6 +47,15 @@ enum CaseRoute {
   PICKUP
 }
 
+enum LogisticsStatus {
+  NOT_SCHEDULED
+  PICKUP_REQUESTED
+  SCHEDULED
+  OUT_FOR_DELIVERY
+  IN_TRANSIT
+  DELIVERED
+}
+
 enum DeptScheduleStatus {
   SCHEDULED
   READY
@@ -210,6 +219,12 @@ model Case {
   shippingAddress   String?
   shippingCarrier   String?
   shippingTime      String?
+  logisticsStatus   LogisticsStatus @default(NOT_SCHEDULED)
+  pickupDate        DateTime?
+  deliveryDate      DateTime?
+  courierName       String?
+  trackingNumber    String?
+  dispatchNotes     String?
   totalValue        Decimal       @default(0) @db.Decimal(12, 2)
   isPaid            Boolean       @default(false)
   invoiceNumber     String?

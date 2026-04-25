@@ -71,6 +71,7 @@ export const config = {
     "/billing/:path*",
     "/cases/:path*",
     "/cases-in-lab/:path*",
+    "/dispatch/:path*",
     "/fda-lots/:path*",
     "/history/:path*",
     "/hold/:path*",

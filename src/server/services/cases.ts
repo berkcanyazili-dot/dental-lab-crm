@@ -51,6 +51,12 @@ export interface CreateCaseInput {
   shippingAddress?: string | null;
   shippingCarrier?: string | null;
   shippingTime?: string | null;
+  logisticsStatus?: Prisma.CaseUncheckedCreateInput["logisticsStatus"];
+  pickupDate?: Date | null;
+  deliveryDate?: Date | null;
+  courierName?: string | null;
+  trackingNumber?: string | null;
+  dispatchNotes?: string | null;
   items?: CreateCaseItemInput[];
   generateSchedule?: boolean;
   auditAuthorName?: string;
@@ -124,6 +130,12 @@ export async function createCaseWithTx(
       shippingAddress: input.shippingAddress,
       shippingCarrier: input.shippingCarrier,
       shippingTime: input.shippingTime,
+      logisticsStatus: input.logisticsStatus,
+      pickupDate: input.pickupDate,
+      deliveryDate: input.deliveryDate,
+      courierName: input.courierName,
+      trackingNumber: input.trackingNumber,
+      dispatchNotes: input.dispatchNotes,
       totalValue,
       items: { create: items },
       audits: {

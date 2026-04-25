@@ -38,6 +38,12 @@ const updateCaseSchema = z
     shippingAddress: z.string().trim().min(1).optional().nullable(),
     shippingCarrier: z.string().trim().min(1).optional().nullable(),
     shippingTime: z.string().trim().min(1).optional().nullable(),
+    logisticsStatus: z.enum(["NOT_SCHEDULED", "PICKUP_REQUESTED", "SCHEDULED", "OUT_FOR_DELIVERY", "IN_TRANSIT", "DELIVERED"]).optional(),
+    pickupDate: z.coerce.date().optional().nullable(),
+    deliveryDate: z.coerce.date().optional().nullable(),
+    courierName: z.string().trim().min(1).optional().nullable(),
+    trackingNumber: z.string().trim().min(1).optional().nullable(),
+    dispatchNotes: z.string().trim().min(1).optional().nullable(),
     _authorName: z.string().trim().min(1).optional(),
   })
   .strict();

@@ -1,5 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { allocateInvoiceNumber } from "@/server/services/accounting";
+
+const createInvoiceSchema = z
+  .object({
+    caseId: z.string().trim().min(1),
+    dentalAccountId: z.string().trim().min(1),
+    subTotal: z.coerce.number().nonnegative().default(0),
+    taxTotal: z.coerce.number().nonnegative().default(0),
+    discountTotal: z.coerce.number().nonnegative().default(0),
+    remakeTotal: z.coerce.number().nonnegative().default(0),
+    netTotal: z.coerce.number().nonnegative().optional(),
+    invoiceTotal: z.coerce.number().nonnegative().optional(),
+    type: z.enum(["STANDARD", "CREDIT", "REMAKE"]).default("STANDARD"),
+    invoiceDate: z.coerce.date().optional(),
+    notes: z.string().trim().min(1).optional().nullable(),
+  })
+  .strict();
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -29,41 +48,51 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { caseId, dentalAccountId, ...rest } = body;
+  const parsed = createInvoiceSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid invoice payload", issues: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
 
-  const count = await prisma.invoice.count();
-  const invoiceNumber = `INV-${String(count + 1).padStart(6, "0")}`;
+  const data = parsed.data;
+  const subTotal = new Prisma.Decimal(data.subTotal);
+  const taxTotal = new Prisma.Decimal(data.taxTotal);
+  const discountTotal = new Prisma.Decimal(data.discountTotal);
+  const remakeTotal = new Prisma.Decimal(data.remakeTotal);
+  const netTotal = data.netTotal !== undefined
+    ? new Prisma.Decimal(data.netTotal)
+    : subTotal.minus(discountTotal).plus(remakeTotal);
+  const invoiceTotal = data.invoiceTotal !== undefined
+    ? new Prisma.Decimal(data.invoiceTotal)
+    : netTotal.plus(taxTotal);
 
-  // Default netTotal = subTotal - discountTotal + remakeTotal
-  const subTotal = rest.subTotal ?? 0;
-  const taxTotal = rest.taxTotal ?? 0;
-  const discountTotal = rest.discountTotal ?? 0;
-  const remakeTotal = rest.remakeTotal ?? 0;
-  const netTotal = rest.netTotal ?? subTotal - discountTotal + remakeTotal;
-  const invoiceTotal = rest.invoiceTotal ?? netTotal + taxTotal;
-
-  const invoice = await prisma.invoice.create({
-    data: {
-      caseId,
-      dentalAccountId,
-      invoiceNumber,
-      subTotal,
-      taxTotal,
-      discountTotal,
-      remakeTotal,
-      netTotal,
-      invoiceTotal,
-      balance: invoiceTotal,
-      type: rest.type ?? "STANDARD",
-      invoiceDate: rest.invoiceDate ? new Date(rest.invoiceDate) : new Date(),
-      notes: rest.notes ?? null,
-      status: "OPEN",
-    },
-    include: {
-      case: { select: { caseNumber: true, patientName: true } },
-      payments: true,
-    },
+  const invoice = await prisma.$transaction(async (tx) => {
+    const invoiceNumber = await allocateInvoiceNumber(tx);
+    return tx.invoice.create({
+      data: {
+        caseId: data.caseId,
+        dentalAccountId: data.dentalAccountId,
+        invoiceNumber,
+        subTotal,
+        taxTotal,
+        discountTotal,
+        remakeTotal,
+        netTotal,
+        invoiceTotal,
+        balance: invoiceTotal,
+        type: data.type,
+        invoiceDate: data.invoiceDate ?? new Date(),
+        notes: data.notes ?? null,
+        status: "OPEN",
+      },
+      include: {
+        case: { select: { caseNumber: true, patientName: true } },
+        payments: true,
+      },
+    });
   });
+
   return NextResponse.json(invoice, { status: 201 });
 }

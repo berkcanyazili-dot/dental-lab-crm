@@ -95,10 +95,27 @@ enum PaymentType {
   OTHER
 }
 
+enum AccountingExportType {
+  INVOICES
+  PAYMENTS
+  CUSTOMERS
+}
+
 model NumberSequence {
   name      String   @id
   value     Int      @default(0)
   updatedAt DateTime @updatedAt
+}
+
+model AccountingExport {
+  id          String               @id @default(cuid())
+  type        AccountingExportType
+  startDate   DateTime?
+  endDate     DateTime?
+  fileName    String
+  rowCount    Int                  @default(0)
+  totalAmount Decimal              @default(0) @db.Decimal(12, 2)
+  createdAt   DateTime             @default(now())
 }
 
 model ShopifySettings {
@@ -352,6 +369,8 @@ model Invoice {
   balance         Decimal       @default(0) @db.Decimal(12, 2)
   status          InvoiceStatus @default(OPEN)
   notes           String?
+  accountingExportedAt DateTime?
+  externalAccountingId String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   payments        Payment[]
@@ -368,6 +387,8 @@ model Payment {
   notes         String?
   referenceId   String?
   accountNumber String?
+  accountingExportedAt DateTime?
+  externalAccountingId String?
   createdAt     DateTime    @default(now())
 }
 

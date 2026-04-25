@@ -88,6 +88,19 @@ async function main() {
     }),
   ]);
 
+  const doctorPassword = await bcrypt.hash("doctor123", 10);
+  await prisma.user.upsert({
+    where: { email: "doctor@brightsmile.com" },
+    update: { dentalAccountId: accounts[0].id, role: "DOCTOR" },
+    create: {
+      email: "doctor@brightsmile.com",
+      name: "Dr. Smith",
+      password: doctorPassword,
+      role: "DOCTOR",
+      dentalAccountId: accounts[0].id,
+    },
+  });
+
   const casesData = [
     {
       id: "case-001",

@@ -30,6 +30,26 @@ export async function middleware(request: NextRequest) {
   });
 
   if (token) {
+    const role = token.role;
+    const isDoctor = role === "DOCTOR";
+    const isPortalPath = pathname === "/portal" || pathname.startsWith("/portal/");
+    const isPortalApiPath = pathname === "/api/portal" || pathname.startsWith("/api/portal/");
+
+    if (isDoctor && pathname === "/") {
+      const portalUrl = request.nextUrl.clone();
+      portalUrl.pathname = "/portal";
+      return NextResponse.redirect(portalUrl);
+    }
+
+    if (isDoctor && !isPortalPath && !isPortalApiPath && !pathname.startsWith("/api/auth")) {
+      if (isApiRoute(pathname)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const portalUrl = request.nextUrl.clone();
+      portalUrl.pathname = "/portal";
+      return NextResponse.redirect(portalUrl);
+    }
+
     return NextResponse.next();
   }
 
@@ -56,6 +76,7 @@ export const config = {
     "/hold/:path*",
     "/incoming/:path*",
     "/outgoing/:path*",
+    "/portal/:path*",
     "/remakes/:path*",
     "/reports/:path*",
     "/sales/:path*",

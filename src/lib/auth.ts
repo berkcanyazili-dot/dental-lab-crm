@@ -20,7 +20,13 @@ export const authOptions: NextAuthOptions = {
         if (!user || !user.password) return null;
         const valid = await bcrypt.compare(credentials.password, user.password);
         if (!valid) return null;
-        return { id: user.id, email: user.email, name: user.name, role: user.role };
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          dentalAccountId: user.dentalAccountId,
+        };
       },
     }),
   ],
@@ -28,12 +34,15 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.role = (user as { role?: string }).role;
+        token.dentalAccountId = (user as { dentalAccountId?: string | null }).dentalAccountId;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         (session.user as { role?: string }).role = token.role as string;
+        (session.user as { dentalAccountId?: string | null }).dentalAccountId =
+          token.dentalAccountId as string | null;
       }
       return session;
     },

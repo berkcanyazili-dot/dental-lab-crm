@@ -5,11 +5,13 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import debounce from "lodash.debounce";
+import { upload } from "@vercel/blob/client";
+import { useDropzone } from "react-dropzone";
 import {
   ArrowLeft, ChevronDown, Save, RefreshCw, Plus, Send,
   CalendarDays, Clock, Package, Truck, User, Building2,
   FileText, Activity, Wrench, CheckCircle2, Circle,
-  AlertCircle, Loader2, Hash, Printer, Link2,
+  AlertCircle, Loader2, Hash, Printer, Link2, UploadCloud,
 } from "lucide-react";
 import { Toaster, toast } from "react-hot-toast";
 import ToothDiagram from "@/components/ui/ToothDiagram";
@@ -190,6 +192,50 @@ function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType;
   );
 }
 
+const MAX_ATTACHMENT_SIZE_BYTES = 50 * 1024 * 1024;
+
+const ACCEPTED_ATTACHMENT_TYPES = {
+  "application/pdf": [".pdf"],
+  "application/octet-stream": [".3mf", ".obj", ".ply", ".stl"],
+  "application/sla": [".stl"],
+  "application/vnd.ms-pki.stl": [".stl"],
+  "image/bmp": [".bmp"],
+  "image/gif": [".gif"],
+  "image/heic": [".heic"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/png": [".png"],
+  "image/tiff": [".tif", ".tiff"],
+  "image/webp": [".webp"],
+  "model/stl": [".stl"],
+} as const;
+
+function inferClientAttachmentType(file: File): AttachmentEntry["fileType"] {
+  const normalizedName = file.name.toLowerCase();
+  const normalizedMime = file.type.toLowerCase();
+
+  if (
+    normalizedMime.startsWith("image/") ||
+    [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic"].some((ext) =>
+      normalizedName.endsWith(ext)
+    )
+  ) {
+    return "image";
+  }
+
+  if (normalizedMime === "application/pdf" || normalizedName.endsWith(".pdf")) {
+    return "pdf";
+  }
+
+  if (
+    normalizedMime.includes("stl") ||
+    [".stl", ".3mf", ".obj", ".ply"].some((ext) => normalizedName.endsWith(ext))
+  ) {
+    return "stl";
+  }
+
+  return "other";
+}
+
 /* ─── Main Page ─────────────────────────────────────────────── */
 export default function CaseDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -218,11 +264,9 @@ export default function CaseDetailPage() {
   const [fdaManufacturer, setFdaManufacturer] = useState("");
   const [fdaLotNumber, setFdaLotNumber] = useState("");
   const [submittingFdaLot, setSubmittingFdaLot] = useState(false);
-  const [attachmentFileName, setAttachmentFileName] = useState("");
-  const [attachmentFileUrl, setAttachmentFileUrl] = useState("");
-  const [attachmentFileType, setAttachmentFileType] = useState<AttachmentEntry["fileType"]>("other");
   const [submittingAttachment, setSubmittingAttachment] = useState(false);
   const [attachmentMessage, setAttachmentMessage] = useState("");
+  const [attachmentProgress, setAttachmentProgress] = useState<number | null>(null);
   const [selectedStlUrl, setSelectedStlUrl] = useState("");
   const hasInitializedAutosaveRef = useRef(false);
   const lastSavedSnapshotRef = useRef("");
@@ -444,36 +488,81 @@ export default function CaseDetailPage() {
     setSubmittingFdaLot(false);
   };
 
-  const submitAttachment = async () => {
-    if (!attachmentFileName.trim() || !attachmentFileUrl.trim()) return;
+  const submitAttachmentFiles = useCallback(async (files: File[]) => {
+    if (!files.length || !caseData) return;
 
     setSubmittingAttachment(true);
+    setAttachmentProgress(0);
     setAttachmentMessage("");
 
-    const response = await fetch(`/api/cases/${id}/attachments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName: attachmentFileName.trim(),
-        fileUrl: attachmentFileUrl.trim(),
-        fileType: attachmentFileType,
-      }),
-    });
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const fileType = inferClientAttachmentType(file);
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      setAttachmentMessage(data?.error ?? "Attachment could not be saved.");
+        await upload(`cases/${caseData.caseNumber}/${file.name}`, file, {
+          access: "public",
+          handleUploadUrl: `/api/cases/${id}/attachments/upload`,
+          clientPayload: JSON.stringify({
+            caseId: caseData.id,
+            originalName: file.name,
+            fileType,
+          }),
+          multipart: file.size > 5 * 1024 * 1024,
+          onUploadProgress: ({ percentage }) => {
+            const overall = ((index + percentage / 100) / files.length) * 100;
+            setAttachmentProgress(Math.round(overall));
+          },
+        });
+      }
+
+      await load();
+      setAttachmentProgress(100);
+      setAttachmentMessage(files.length === 1 ? "Attachment uploaded." : `${files.length} attachments uploaded.`);
+      toast.success(files.length === 1 ? "Attachment uploaded" : `${files.length} attachments uploaded`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Attachment upload could not be completed.";
+      setAttachmentMessage(message);
+      toast.error(message);
+    } finally {
       setSubmittingAttachment(false);
-      return;
+      window.setTimeout(() => setAttachmentProgress(null), 1200);
     }
+  }, [caseData, id, load]);
 
-    setAttachmentFileName("");
-    setAttachmentFileUrl("");
-    setAttachmentFileType("other");
-    setAttachmentMessage("Attachment saved.");
-    await load();
-    setSubmittingAttachment(false);
-  };
+  const onAttachmentDrop = useCallback(async (acceptedFiles: File[]) => {
+    await submitAttachmentFiles(acceptedFiles);
+  }, [submitAttachmentFiles]);
+
+  const {
+    getRootProps,
+    getInputProps,
+    isDragActive,
+    open: openFilePicker,
+  } = useDropzone({
+    onDrop: (acceptedFiles, fileRejections) => {
+      if (fileRejections.length) {
+        const tooLarge = fileRejections.some(({ errors }) =>
+          errors.some((error) => error.code === "file-too-large")
+        );
+
+        setAttachmentMessage(
+          tooLarge
+            ? "Files larger than 50 MB need to be split or compressed before upload."
+            : "Only STL, PDF, and image files can be dropped here."
+        );
+        return;
+      }
+
+      void onAttachmentDrop(acceptedFiles);
+    },
+    accept: ACCEPTED_ATTACHMENT_TYPES,
+    disabled: submittingAttachment,
+    maxSize: MAX_ATTACHMENT_SIZE_BYTES,
+    multiple: true,
+    noClick: true,
+  });
 
   /* ─── Loading state ──────────────────────────────────────── */
   if (loading || !caseData) {
@@ -928,9 +1017,8 @@ export default function CaseDetailPage() {
                 action={(
                   <button
                     type="button"
-                    onClick={() =>
-                      setAttachmentMessage("Binary upload will plug into this button once S3 or UploadThing is configured.")
-                    }
+                    onClick={openFilePicker}
+                    disabled={submittingAttachment}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -939,43 +1027,60 @@ export default function CaseDetailPage() {
                 )}
               />
 
-              <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-[1fr_1.3fr_140px_auto]">
-                <input
-                  value={attachmentFileName}
-                  onChange={(e) => setAttachmentFileName(e.target.value)}
-                  placeholder="File name"
-                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 transition-colors focus:outline-none focus:border-sky-500"
-                />
-                <input
-                  value={attachmentFileUrl}
-                  onChange={(e) => setAttachmentFileUrl(e.target.value)}
-                  placeholder="External file URL"
-                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 transition-colors focus:outline-none focus:border-sky-500"
-                />
-                <select
-                  value={attachmentFileType}
-                  onChange={(e) => setAttachmentFileType(e.target.value as AttachmentEntry["fileType"])}
-                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white transition-colors focus:outline-none focus:border-sky-500"
-                >
-                  <option value="other">Other</option>
-                  <option value="stl">STL / 3D</option>
-                  <option value="pdf">PDF</option>
-                  <option value="image">Image</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={submitAttachment}
-                  disabled={submittingAttachment || !attachmentFileName.trim() || !attachmentFileUrl.trim()}
-                  className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
-                >
-                  {submittingAttachment ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Save Link"}
-                </button>
+              <div
+                {...getRootProps()}
+                className={`mb-4 rounded-xl border border-dashed px-4 py-6 transition-colors ${
+                  isDragActive
+                    ? "border-sky-400 bg-sky-500/10"
+                    : "border-gray-700 bg-gray-900/40 hover:border-gray-500"
+                }`}
+              >
+                <input {...getInputProps()} />
+                <div className="flex flex-col items-center justify-center gap-3 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-sky-500/10 text-sky-400">
+                    <UploadCloud className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {isDragActive ? "Drop files to attach them to this case" : "Drag STL files, PDFs, or RX images here"}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Direct uploads go to case storage and automatically land in the audit trail. Max 50 MB per file.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openFilePicker}
+                    disabled={submittingAttachment}
+                    className="rounded-lg border border-gray-600 bg-gray-800 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:border-sky-500 hover:text-sky-300 disabled:opacity-50"
+                  >
+                    Browse Files
+                  </button>
+                </div>
               </div>
 
               {attachmentMessage && (
-                <p className={`mb-4 text-sm ${attachmentMessage.includes("saved") ? "text-green-400" : "text-amber-300"}`}>
+                <p className={`mb-4 text-sm ${attachmentMessage.toLowerCase().includes("uploaded") ? "text-green-400" : "text-amber-300"}`}>
                   {attachmentMessage}
                 </p>
+              )}
+
+              {submittingAttachment && (
+                <div className="mb-4 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
+                  <div className="mb-2 flex items-center justify-between text-xs text-sky-200">
+                    <span className="inline-flex items-center gap-2">
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      Uploading attachments...
+                    </span>
+                    <span>{attachmentProgress ?? 0}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-gray-800">
+                    <div
+                      className="h-full rounded-full bg-sky-500 transition-all"
+                      style={{ width: `${attachmentProgress ?? 0}%` }}
+                    />
+                  </div>
+                </div>
               )}
 
               {stlAttachments.length > 0 && selectedStlUrl && (
@@ -1007,7 +1112,7 @@ export default function CaseDetailPage() {
                 <div className="rounded-lg border border-dashed border-gray-700 bg-gray-900/40 px-4 py-8 text-center">
                   <p className="text-sm text-gray-300">No attachments uploaded yet.</p>
                   <p className="mt-1 text-xs text-gray-500">
-                    You can register external file links now. Direct binary upload will plug into this panel next.
+                    Technicians can drag files here once Vercel Blob is connected for this project.
                   </p>
                 </div>
               ) : (

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
@@ -12,9 +13,30 @@ const createAttachmentSchema = z
   })
   .strict();
 
+function buildCaseLookupWhere(rawId: string): Prisma.CaseWhereInput {
+  const normalized = rawId.trim();
+
+  return {
+    OR: [
+      { id: normalized },
+      { caseNumber: normalized },
+      { caseNumber: normalized.toUpperCase() },
+    ],
+  };
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const existingCase = await prisma.case.findFirst({
+    where: buildCaseLookupWhere(params.id),
+    select: { id: true },
+  });
+
+  if (!existingCase) {
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  }
+
   const attachments = await prisma.attachment.findMany({
-    where: { caseId: params.id },
+    where: { caseId: existingCase.id },
     orderBy: { createdAt: "desc" },
   });
 
@@ -30,8 +52,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     );
   }
 
-  const existingCase = await prisma.case.findUnique({
-    where: { id: params.id },
+  const existingCase = await prisma.case.findFirst({
+    where: buildCaseLookupWhere(params.id),
     select: { id: true, caseNumber: true },
   });
 
@@ -45,7 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const attachment = await prisma.attachment.create({
     data: {
-      caseId: params.id,
+      caseId: existingCase.id,
       fileName,
       fileUrl,
       fileType,
@@ -55,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   await prisma.caseAudit.create({
     data: {
-      caseId: params.id,
+      caseId: existingCase.id,
       action: "ATTACHMENT_ADDED",
       details: `${fileName} (${fileType})`,
       authorName,

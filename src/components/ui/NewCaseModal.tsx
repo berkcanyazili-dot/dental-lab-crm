@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -175,27 +175,36 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 // Accept register() spread via ...rest; discard any passed className to keep styles stable
-function TextInput({ type = "text", ...rest }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "className">) {
+const TextInput = forwardRef<
+  HTMLInputElement,
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, "className">
+>(({ type = "text", ...rest }, ref) => {
   return (
     <input
+      ref={ref}
       type={type}
       {...rest}
       className="h-9 w-full rounded border border-slate-600 bg-slate-950 px-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400"
     />
   );
-}
+});
+TextInput.displayName = "TextInput";
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function SelectInput({ children, className, ...rest }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+const SelectInput = forwardRef<
+  HTMLSelectElement,
+  React.SelectHTMLAttributes<HTMLSelectElement>
+>(({ children, ...rest }, ref) => {
   return (
     <select
+      ref={ref}
       {...rest}
       className="h-9 w-full rounded border border-slate-600 bg-slate-950 px-2 text-sm text-white outline-none transition focus:border-sky-400"
     >
       {children}
     </select>
   );
-}
+});
+SelectInput.displayName = "SelectInput";
 
 function Panel({
   title,

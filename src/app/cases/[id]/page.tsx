@@ -51,6 +51,15 @@ interface AuditEntry {
   createdAt: string;
 }
 
+interface FDALotEntry {
+  id: string;
+  itemName: string;
+  manufacturer: string | null;
+  lotNumber: string;
+  userName: string;
+  createdAt: string;
+}
+
 interface Technician {
   id: string;
   name: string;
@@ -94,6 +103,7 @@ interface CaseDetail {
   caseNotes: CaseNote[];
   schedule: ScheduleStep[];
   audits: AuditEntry[];
+  fdaLots?: FDALotEntry[];
 }
 
 /* ─── Helpers ───────────────────────────────────────────────── */
@@ -175,6 +185,10 @@ export default function CaseDetailPage() {
 
   const [newNote, setNewNote] = useState("");
   const [submittingNote, setSubmittingNote] = useState(false);
+  const [fdaItemName, setFdaItemName] = useState("");
+  const [fdaManufacturer, setFdaManufacturer] = useState("");
+  const [fdaLotNumber, setFdaLotNumber] = useState("");
+  const [submittingFdaLot, setSubmittingFdaLot] = useState(false);
 
   const load = useCallback(async () => {
     const [caseRes, techRes] = await Promise.all([
@@ -253,6 +267,25 @@ export default function CaseDetailPage() {
     setNewNote("");
     await load();
     setSubmittingNote(false);
+  };
+
+  const submitFdaLot = async () => {
+    if (!fdaItemName.trim() || !fdaLotNumber.trim()) return;
+    setSubmittingFdaLot(true);
+    await fetch(`/api/cases/${id}/fda-lots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        itemName: fdaItemName.trim(),
+        manufacturer: fdaManufacturer.trim() || null,
+        lotNumber: fdaLotNumber.trim(),
+      }),
+    });
+    setFdaItemName("");
+    setFdaManufacturer("");
+    setFdaLotNumber("");
+    await load();
+    setSubmittingFdaLot(false);
   };
 
   /* ─── Loading state ──────────────────────────────────────── */
@@ -585,6 +618,68 @@ export default function CaseDetailPage() {
                   ))
                 )}
               </div>
+            </div>
+
+            {/* FDA Materials Tracking */}
+            <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
+              <SectionHeader icon={Activity} title="FDA Materials Tracking" />
+
+              <div className="grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1fr_auto] gap-2 mb-4">
+                <input
+                  value={fdaItemName}
+                  onChange={(e) => setFdaItemName(e.target.value)}
+                  placeholder="Item name (e.g. Zirconia Disc)"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
+                />
+                <input
+                  value={fdaManufacturer}
+                  onChange={(e) => setFdaManufacturer(e.target.value)}
+                  placeholder="Manufacturer"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
+                />
+                <input
+                  value={fdaLotNumber}
+                  onChange={(e) => setFdaLotNumber(e.target.value)}
+                  placeholder="Lot number"
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
+                />
+                <button
+                  onClick={submitFdaLot}
+                  disabled={submittingFdaLot || !fdaItemName.trim() || !fdaLotNumber.trim()}
+                  className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  {submittingFdaLot ? <RefreshCw className="w-4 h-4 animate-spin" /> : "Add Lot"}
+                </button>
+              </div>
+
+              {!caseData.fdaLots?.length ? (
+                <p className="text-sm text-gray-500 text-center py-4">No FDA lot entries recorded for this case yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-700/30">
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Manufacturer</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Lot Number</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Entered By</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-700/20">
+                      {caseData.fdaLots.map((lot) => (
+                        <tr key={lot.id} className="hover:bg-gray-700/10 transition-colors">
+                          <td className="px-3 py-2.5 text-white font-medium">{lot.itemName}</td>
+                          <td className="px-3 py-2.5 text-gray-400">{lot.manufacturer ?? "—"}</td>
+                          <td className="px-3 py-2.5 font-mono text-yellow-300">{lot.lotNumber}</td>
+                          <td className="px-3 py-2.5 text-gray-400">{lot.userName}</td>
+                          <td className="px-3 py-2.5 text-xs text-gray-500">{formatDate(lot.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
 

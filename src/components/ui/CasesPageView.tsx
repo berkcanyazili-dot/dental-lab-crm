@@ -13,7 +13,7 @@ interface Case {
   priority: string;
   receivedDate: string;
   dueDate: string | null;
-  totalValue: number;
+  totalValue: number | string;
   pan: string | null;
   shade: string | null;
   dentalAccount: { id: string; name: string; doctorName: string | null };
@@ -59,7 +59,7 @@ export default function CasesPageView({
     load();
   };
 
-  const totalValue = cases.reduce((s, c) => s + c.totalValue, 0);
+  const totalValue = cases.reduce((sum, c) => sum + Number(c.totalValue), 0);
 
   return (
     <div className="p-6 space-y-5">

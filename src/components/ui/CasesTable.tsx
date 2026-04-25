@@ -21,7 +21,7 @@ interface Case {
   priority: string;
   receivedDate: string;
   dueDate: string | null;
-  totalValue: number;
+  totalValue: number | string;
   pan: string | null;
   shade: string | null;
   dentalAccount: { id: string; name: string; doctorName: string | null };
@@ -194,7 +194,7 @@ export default function CasesTable({ cases, onStatusChange, initialSearch = "" }
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-green-400 whitespace-nowrap">
-                      {formatCurrency(c.totalValue)}
+                      {formatCurrency(Number(c.totalValue))}
                     </td>
                   </tr>
                 ))

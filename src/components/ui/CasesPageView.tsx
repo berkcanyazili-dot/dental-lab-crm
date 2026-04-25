@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import CasesTable from "./CasesTable";
 import NewCaseModal from "./NewCaseModal";
@@ -27,14 +26,19 @@ interface Props {
   description: string;
   statusFilter: string;
   allowStatusChange?: boolean;
+  initialSearch?: string;
 }
 
-export default function CasesPageView({ title, description, statusFilter, allowStatusChange }: Props) {
-  const searchParams = useSearchParams();
+export default function CasesPageView({
+  title,
+  description,
+  statusFilter,
+  allowStatusChange,
+  initialSearch = "",
+}: Props) {
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const searchQuery = searchParams.get("search") ?? "";
 
   const load = useCallback(() => {
     setLoading(true);
@@ -89,7 +93,7 @@ export default function CasesPageView({ title, description, statusFilter, allowS
         <CasesTable
           cases={cases}
           onStatusChange={allowStatusChange ? handleStatusChange : undefined}
-          initialSearch={searchQuery}
+          initialSearch={initialSearch}
         />
       )}
 

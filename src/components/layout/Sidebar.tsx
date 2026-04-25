@@ -43,6 +43,10 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
 
+  if (pathname === "/login") {
+    return null;
+  }
+
   return (
     <aside className="flex flex-col w-64 min-h-screen bg-gray-950 border-r border-gray-800">
       <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-800">

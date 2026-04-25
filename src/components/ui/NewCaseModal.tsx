@@ -57,6 +57,20 @@ interface Props {
   onSaved: () => void;
 }
 
+interface AsyncAccountSearchProps {
+  query: string;
+  selectedAccount: DentalAccount | null;
+  results: DentalAccount[];
+  isLoading: boolean;
+  showResults: boolean;
+  minimumChars: number;
+  error?: string;
+  onQueryChange: (value: string) => void;
+  onSelect: (account: DentalAccount) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+}
+
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const caseItemSchema = z.object({
@@ -203,6 +217,83 @@ function Panel({
   );
 }
 
+function AsyncAccountSearch({
+  query,
+  selectedAccount,
+  results,
+  isLoading,
+  showResults,
+  minimumChars,
+  error,
+  onQueryChange,
+  onSelect,
+  onFocus,
+  onBlur,
+}: AsyncAccountSearchProps) {
+  const canSearch = query.trim().length >= minimumChars;
+  const showDropdown = showResults && (canSearch || isLoading || results.length > 0);
+
+  return (
+    <div className="relative">
+      <FieldLabel>Acct Num / Doctor</FieldLabel>
+      <div className="relative">
+        <TextInput
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          placeholder="Type 2+ characters to search"
+          autoComplete="off"
+        />
+        <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+      </div>
+      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      {selectedAccount && !showDropdown && (
+        <p className="mt-1 text-xs text-slate-400">
+          Selected: {selectedAccount.name}
+          {selectedAccount.doctorName ? ` - Dr. ${selectedAccount.doctorName}` : ""}
+        </p>
+      )}
+      {showDropdown && (
+        <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto border border-slate-700 bg-slate-950 shadow-xl">
+          {!canSearch ? (
+            <div className="px-3 py-2 text-sm text-slate-400">
+              Type at least {minimumChars} characters to search accounts.
+            </div>
+          ) : isLoading ? (
+            <div className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Searching accounts...
+            </div>
+          ) : results.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-slate-400">No matching accounts found.</div>
+          ) : (
+            results.map((account) => (
+              <button
+                key={account.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onSelect(account)}
+                className="block w-full border-b border-slate-800 px-3 py-2 text-left text-sm text-slate-200 hover:bg-sky-950"
+              >
+                <span className="font-semibold">{account.name}</span>
+                {account.doctorName && (
+                  <span className="text-slate-400"> - Dr. {account.doctorName}</span>
+                )}
+                {(account.city || account.state) && (
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {[account.city, account.state].filter(Boolean).join(", ")}
+                  </div>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function Checkbox({
   label,
@@ -220,12 +311,14 @@ function Checkbox({
 
 export default function NewCaseModal({ onClose, onSaved }: Props) {
   // ── External data (not form state) ──────────────────────────────────────────
-  const [accounts, setAccounts] = useState<DentalAccount[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [serviceProducts, setServiceProducts] = useState<ServiceProduct[]>([]);
 
   // ── UI-only state ────────────────────────────────────────────────────────────
   const [accountSearch, setAccountSearch] = useState("");
+  const [selectedAccount, setSelectedAccount] = useState<DentalAccount | null>(null);
+  const [accountResults, setAccountResults] = useState<DentalAccount[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [showAccountResults, setShowAccountResults] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     Fixed: true,
@@ -293,7 +386,6 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
     .filter(Boolean)
     .join(" ");
 
-  const selectedAccount = accounts.find((a) => a.id === watch("dentalAccountId")) ?? null;
   const totalUnits = watchedItems.reduce((s, i) => s + (Number(i.units) || 0), 0);
   const totalValue = watchedItems.reduce((s, i) => s + (Number(i.units) || 0) * (Number(i.price) || 0), 0);
 
@@ -306,27 +398,13 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
     }, {});
   }, [serviceProducts]);
 
-  const filteredAccounts = useMemo(() => {
-    const q = accountSearch.trim().toLowerCase();
-    if (!q) return accounts.slice(0, 8);
-    return accounts
-      .filter(
-        (a) =>
-          a.name.toLowerCase().includes(q) ||
-          (a.doctorName ?? "").toLowerCase().includes(q)
-      )
-      .slice(0, 10);
-  }, [accountSearch, accounts]);
-
   // ── Data fetch ────────────────────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
-      fetch("/api/accounts").then((r) => r.json()),
       fetch("/api/technicians").then((r) => r.json()),
       fetch("/api/settings/lab").then((r) => r.json()),
     ])
-      .then(([accountData, techData, labData]) => {
-        setAccounts(Array.isArray(accountData) ? accountData : []);
+      .then(([techData, labData]) => {
         setTechnicians(Array.isArray(techData) ? techData : []);
         setServiceProducts(
           Array.isArray(labData.products)
@@ -335,17 +413,53 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
         );
       })
       .catch(() => {
-        setAccounts([]);
         setTechnicians([]);
       });
   }, []);
 
+  useEffect(() => {
+    const query = accountSearch.trim();
+    if (query.length < 2) {
+      setAccountResults([]);
+      setLoadingAccounts(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setLoadingAccounts(true);
+      try {
+        const response = await fetch(
+          `/api/accounts?search=${encodeURIComponent(query)}&limit=12`,
+          { signal: controller.signal }
+        );
+        const data = await response.json();
+        setAccountResults(Array.isArray(data) ? data : []);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setAccountResults([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingAccounts(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [accountSearch]);
+
   // ── Handlers ─────────────────────────────────────────────────────────────────
   function selectAccount(account: DentalAccount) {
+    setSelectedAccount(account);
     setValue("dentalAccountId", account.id, { shouldValidate: true });
     setAccountSearch(
       `${account.name}${account.doctorName ? ` - Dr. ${account.doctorName}` : ""}`
     );
+    setAccountResults([]);
     setShowAccountResults(false);
     const parts = [account.address, account.city, account.state, account.zip].filter(Boolean);
     if (parts.length) setValue("shippingAddress", parts.join(", "));
@@ -469,45 +583,26 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
                 {/* ── Doctor panel ──────────────────────────────────────────── */}
                 <Panel title="Doctor" icon={UserRound}>
                   <div className="grid gap-3 md:grid-cols-[1fr_180px]">
-                    <div className="relative">
-                      <FieldLabel>Acct Num / Doctor</FieldLabel>
-                      <div className="flex gap-2">
-                        <TextInput
-                          value={accountSearch}
-                          onChange={(e) => {
-                            setAccountSearch(e.target.value);
-                            setShowAccountResults(true);
-                          }}
-                          placeholder="Search account or doctor"
-                        />
-                        <button
-                          type="button"
-                          className="flex h-9 w-10 items-center justify-center rounded border border-slate-600 bg-slate-800 text-slate-300"
-                        >
-                          <Search className="h-4 w-4" />
-                        </button>
-                      </div>
-                      {errors.dentalAccountId && (
-                        <p className="mt-1 text-xs text-red-400">{errors.dentalAccountId.message}</p>
-                      )}
-                      {showAccountResults && filteredAccounts.length > 0 && (
-                        <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto border border-slate-700 bg-slate-950 shadow-xl">
-                          {filteredAccounts.map((account) => (
-                            <button
-                              key={account.id}
-                              type="button"
-                              onClick={() => selectAccount(account)}
-                              className="block w-full border-b border-slate-800 px-3 py-2 text-left text-sm text-slate-200 hover:bg-sky-950"
-                            >
-                              <span className="font-semibold">{account.name}</span>
-                              {account.doctorName && (
-                                <span className="text-slate-400"> - Dr. {account.doctorName}</span>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <AsyncAccountSearch
+                      query={accountSearch}
+                      selectedAccount={selectedAccount}
+                      results={accountResults}
+                      isLoading={loadingAccounts}
+                      showResults={showAccountResults}
+                      minimumChars={2}
+                      error={errors.dentalAccountId?.message}
+                      onQueryChange={(value) => {
+                        setAccountSearch(value);
+                        setShowAccountResults(true);
+                        setSelectedAccount(null);
+                        setValue("dentalAccountId", "", { shouldValidate: true });
+                      }}
+                      onSelect={selectAccount}
+                      onFocus={() => setShowAccountResults(true)}
+                      onBlur={() => {
+                        window.setTimeout(() => setShowAccountResults(false), 120);
+                      }}
+                    />
 
                     <div>
                       <FieldLabel>Technician</FieldLabel>

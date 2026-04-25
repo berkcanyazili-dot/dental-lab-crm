@@ -18,10 +18,34 @@ const createAccountSchema = z
   })
   .strict();
 
-export async function GET() {
+const DEFAULT_LIMIT = 25;
+const SEARCH_LIMIT = 12;
+
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const rawSearch = searchParams.get("search")?.trim() ?? "";
+    const search = rawSearch.slice(0, 100);
+    const parsedLimit = Number(searchParams.get("limit"));
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(Math.floor(parsedLimit), 50)
+      : search
+        ? SEARCH_LIMIT
+        : DEFAULT_LIMIT;
+
     const accounts = await prisma.dentalAccount.findMany({
+      where: search
+        ? {
+            OR: [
+              { name: { contains: search, mode: "insensitive" } },
+              { doctorName: { contains: search, mode: "insensitive" } },
+              { email: { contains: search, mode: "insensitive" } },
+              { phone: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : undefined,
       orderBy: { name: "asc" },
+      take: limit,
       include: { _count: { select: { cases: true } } },
     });
     return NextResponse.json(accounts);

@@ -49,7 +49,7 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
 
-  if (pathname === "/login" || pathname.startsWith("/portal")) {
+  if (pathname === "/login" || pathname.startsWith("/portal") || pathname.startsWith("/tech")) {
     return null;
   }
 

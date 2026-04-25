@@ -16,6 +16,7 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
+          include: { technician: { select: { id: true } } },
         });
         if (!user || !user.password) return null;
         const valid = await bcrypt.compare(credentials.password, user.password);
@@ -26,6 +27,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           role: user.role,
           dentalAccountId: user.dentalAccountId,
+          technicianId: user.technician?.id ?? null,
         };
       },
     }),
@@ -35,6 +37,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = (user as { role?: string }).role;
         token.dentalAccountId = (user as { dentalAccountId?: string | null }).dentalAccountId;
+        token.technicianId = (user as { technicianId?: string | null }).technicianId;
       }
       return token;
     },
@@ -43,6 +46,8 @@ export const authOptions: NextAuthOptions = {
         (session.user as { role?: string }).role = token.role as string;
         (session.user as { dentalAccountId?: string | null }).dentalAccountId =
           token.dentalAccountId as string | null;
+        (session.user as { technicianId?: string | null }).technicianId =
+          token.technicianId as string | null;
       }
       return session;
     },

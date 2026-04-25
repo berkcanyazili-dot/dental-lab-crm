@@ -32,8 +32,11 @@ export async function middleware(request: NextRequest) {
   if (token) {
     const role = token.role;
     const isDoctor = role === "DOCTOR";
+    const isTechnician = role === "TECHNICIAN";
     const isPortalPath = pathname === "/portal" || pathname.startsWith("/portal/");
     const isPortalApiPath = pathname === "/api/portal" || pathname.startsWith("/api/portal/");
+    const isTechPath = pathname === "/tech" || pathname.startsWith("/tech/");
+    const isTechApiPath = pathname === "/api/tech" || pathname.startsWith("/api/tech/");
 
     if (isDoctor && pathname === "/") {
       const portalUrl = request.nextUrl.clone();
@@ -48,6 +51,21 @@ export async function middleware(request: NextRequest) {
       const portalUrl = request.nextUrl.clone();
       portalUrl.pathname = "/portal";
       return NextResponse.redirect(portalUrl);
+    }
+
+    if (isTechnician && pathname === "/") {
+      const techUrl = request.nextUrl.clone();
+      techUrl.pathname = "/tech";
+      return NextResponse.redirect(techUrl);
+    }
+
+    if (isTechnician && !isTechPath && !isTechApiPath && !pathname.startsWith("/api/auth")) {
+      if (isApiRoute(pathname)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const techUrl = request.nextUrl.clone();
+      techUrl.pathname = "/tech";
+      return NextResponse.redirect(techUrl);
     }
 
     return NextResponse.next();
@@ -83,6 +101,7 @@ export const config = {
     "/reports/:path*",
     "/sales/:path*",
     "/settings/:path*",
+    "/tech/:path*",
     "/technicians/:path*",
     "/wip/:path*",
   ],

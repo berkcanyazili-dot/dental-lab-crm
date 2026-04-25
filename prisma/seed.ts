@@ -34,6 +34,49 @@ async function main() {
     }),
   ]);
 
+  const techPassword = await bcrypt.hash("tech123", 10);
+  const technicianUsers = await Promise.all([
+    prisma.user.upsert({
+      where: { email: "maria@dentallab.com" },
+      update: { role: "TECHNICIAN" },
+      create: {
+        email: "maria@dentallab.com",
+        name: "Maria Garcia",
+        password: techPassword,
+        role: "TECHNICIAN",
+      },
+    }),
+    prisma.user.upsert({
+      where: { email: "james@dentallab.com" },
+      update: { role: "TECHNICIAN" },
+      create: {
+        email: "james@dentallab.com",
+        name: "James Chen",
+        password: techPassword,
+        role: "TECHNICIAN",
+      },
+    }),
+    prisma.user.upsert({
+      where: { email: "sarah@dentallab.com" },
+      update: { role: "TECHNICIAN" },
+      create: {
+        email: "sarah@dentallab.com",
+        name: "Sarah Johnson",
+        password: techPassword,
+        role: "TECHNICIAN",
+      },
+    }),
+  ]);
+
+  await Promise.all(
+    technicians.map((technician, index) =>
+      prisma.technician.update({
+        where: { id: technician.id },
+        data: { userId: technicianUsers[index].id },
+      })
+    )
+  );
+
   const accounts = await Promise.all([
     prisma.dentalAccount.upsert({
       where: { id: "acc-001" },

@@ -1,7 +1,8 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getActiveWorkflowTemplates } from "@/server/services/labSettings";
 
-const DEPARTMENTS = ["Scan", "Design", "Milling", "C&B QC", "Stain & Glaze", "Final QC", "Shipping"];
+const FALLBACK_WORKFLOW = ["Scan", "Design", "Milling", "C&B QC", "Stain & Glaze", "Final QC", "Shipping"];
 
 type TransactionClient = Omit<
   PrismaClient,
@@ -94,6 +95,7 @@ export async function createCaseWithTx(
   const caseNumber = await allocateCaseNumber(tx);
   const totalValue = calculateTotalValue(items);
   const auditDetails = input.auditDetails ?? `Case ${caseNumber} created`;
+  const workflow = input.generateSchedule ? await getActiveWorkflowTemplates(tx) : [];
 
   return tx.case.create({
     data: {
@@ -150,11 +152,17 @@ export async function createCaseWithTx(
       ...(input.generateSchedule
         ? {
             schedule: {
-              create: DEPARTMENTS.map((department, sortOrder) => ({
-                department,
-                sortOrder,
-                status: "SCHEDULED",
-              })),
+              create: workflow.length
+                ? workflow.map((step) => ({
+                    department: step.department,
+                    sortOrder: step.sortOrder,
+                    status: "SCHEDULED",
+                  }))
+                : FALLBACK_WORKFLOW.map((department, sortOrder) => ({
+                    department,
+                    sortOrder,
+                    status: "SCHEDULED",
+                  })),
             },
           }
         : {}),

@@ -118,6 +118,48 @@ model AccountingExport {
   createdAt   DateTime             @default(now())
 }
 
+model LabSettings {
+  id                 String   @id @default("default")
+  labName            String   @default("Dental Lab CRM")
+  phone              String?
+  email              String?
+  address            String?
+  city               String?
+  state              String?
+  zip                String?
+  defaultTurnaroundDays Int   @default(7)
+  defaultShippingCarrier String?
+  defaultShippingTime    String?
+  workTicketFooter   String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ServiceProduct {
+  id           String   @id @default(cuid())
+  name         String
+  department   String
+  defaultPrice Decimal  @default(0) @db.Decimal(12, 2)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([department, name])
+}
+
+model WorkflowStepTemplate {
+  id          String   @id @default(cuid())
+  department  String
+  sortOrder   Int      @default(0)
+  leadDays    Int      @default(1)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([department])
+}
+
 model ShopifySettings {
   id               String   @id @default("default")
   storeUrl         String?

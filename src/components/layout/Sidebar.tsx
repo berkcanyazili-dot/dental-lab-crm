@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   ChevronRight,
   Truck,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,7 @@ const navItems = [
   { href: "/technicians/checkin", label: "Check In / Out", icon: ClipboardCheck },
   { href: "/accounts", label: "Accounts", icon: Building2 },
   { href: "/fda-lots", label: "FDA Lot Tracking", icon: ShieldCheck },
+  { href: "/settings/lab", label: "Lab Settings", icon: Settings },
 ];
 
 export default function Sidebar() {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -14,7 +14,6 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { PRODUCT_TYPES } from "@/lib/constants";
 
 interface OrderItem {
   id: string;
@@ -26,12 +25,21 @@ interface OrderItem {
   notes: string;
 }
 
+interface ServiceProduct {
+  name: string;
+  department: string;
+  defaultPrice: string | number;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+const FALLBACK_PRODUCTS = ["Crown", "Implant Crown", "Full Arch Restoration", "Anterior Zirconia", "Posterior Zirconia", "Denture"];
 const MATERIALS = ["", "Zirconia", "E.max", "PFM", "High Noble", "Titanium", "Acrylic", "Other"];
 
-function emptyItem(): OrderItem {
+function emptyItem(productType = FALLBACK_PRODUCTS[0]): OrderItem {
   return {
     id: `${Date.now()}-${Math.random()}`,
-    productType: PRODUCT_TYPES[0],
+    productType,
     toothNumbers: "",
     units: 1,
     shade: "",
@@ -59,9 +67,26 @@ export default function PortalNewOrderPage() {
   const [shippingAddress, setShippingAddress] = useState("");
   const [materialsReceived, setMaterialsReceived] = useState("");
   const [notes, setNotes] = useState("");
+  const [serviceProducts, setServiceProducts] = useState<ServiceProduct[]>([]);
   const [items, setItems] = useState<OrderItem[]>([emptyItem()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/settings/lab")
+      .then((response) => response.json())
+      .then((data) => {
+        const activeProducts = Array.isArray(data.products)
+          ? data.products.filter((product: ServiceProduct) => product.isActive)
+          : [];
+        setServiceProducts(activeProducts);
+      })
+      .catch(() => setServiceProducts([]));
+  }, []);
+
+  const productNames = serviceProducts.length
+    ? serviceProducts.map((product) => product.name)
+    : FALLBACK_PRODUCTS;
 
   function updateItem(id: string, patch: Partial<OrderItem>) {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
@@ -226,7 +251,7 @@ export default function PortalNewOrderPage() {
                 <PackagePlus className="h-4 w-4 text-sky-300" />
                 <h2 className="text-sm font-bold uppercase tracking-wide text-white">Products / Restorations</h2>
               </div>
-              <button type="button" onClick={() => setItems((current) => [...current, emptyItem()])} className="flex items-center gap-1 text-sm text-sky-300 hover:text-sky-200">
+              <button type="button" onClick={() => setItems((current) => [...current, emptyItem(productNames[0])])} className="flex items-center gap-1 text-sm text-sky-300 hover:text-sky-200">
                 <Plus className="h-4 w-4" />
                 Add Item
               </button>
@@ -235,7 +260,7 @@ export default function PortalNewOrderPage() {
               {items.map((item) => (
                 <div key={item.id} className="grid gap-2 border border-slate-800 bg-slate-950 p-3 md:grid-cols-[1.2fr_140px_80px_110px_120px_36px]">
                   <select value={item.productType} onChange={(event) => updateItem(item.id, { productType: event.target.value })} className="h-9 rounded border border-slate-700 bg-slate-900 px-2 text-sm text-white outline-none focus:border-sky-400">
-                    {PRODUCT_TYPES.map((product) => <option key={product}>{product}</option>)}
+                    {productNames.map((product) => <option key={product}>{product}</option>)}
                   </select>
                   <input value={item.toothNumbers} onChange={(event) => updateItem(item.id, { toothNumbers: event.target.value })} placeholder="Tooth #" className="h-9 rounded border border-slate-700 bg-slate-900 px-2 text-sm text-white outline-none focus:border-sky-400" />
                   <input type="number" min={1} value={item.units} onChange={(event) => updateItem(item.id, { units: Math.max(1, Number(event.target.value) || 1) })} className="h-9 rounded border border-slate-700 bg-slate-900 px-2 text-sm text-white outline-none focus:border-sky-400" />

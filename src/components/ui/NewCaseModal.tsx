@@ -48,6 +48,14 @@ interface CaseItemInput {
   price: number;
 }
 
+interface ServiceProduct {
+  name: string;
+  department: string;
+  defaultPrice: string | number;
+  isActive: boolean;
+  sortOrder: number;
+}
+
 interface Props {
   defaultStatus?: string;
   onClose: () => void;
@@ -185,7 +193,7 @@ function Checkbox({
   );
 }
 
-function makeItem(productType: string, department: string): CaseItemInput {
+function makeItem(productType: string, department: string, price = 0): CaseItemInput {
   return {
     localId: `${Date.now()}-${Math.random()}`,
     productType,
@@ -193,7 +201,7 @@ function makeItem(productType: string, department: string): CaseItemInput {
     units: 1,
     shade: "",
     material: "None",
-    price: 0,
+    price,
   };
 }
 
@@ -229,6 +237,7 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([]);
   const [missingTeeth, setMissingTeeth] = useState<number[]>([]);
   const [items, setItems] = useState<CaseItemInput[]>([makeItem("Crown", "Fixed")]);
+  const [serviceProducts, setServiceProducts] = useState<ServiceProduct[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     Fixed: true,
     Removable: false,
@@ -251,10 +260,16 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
     Promise.all([
       fetch("/api/accounts").then((response) => response.json()),
       fetch("/api/technicians").then((response) => response.json()),
+      fetch("/api/settings/lab").then((response) => response.json()),
     ])
-      .then(([accountData, technicianData]) => {
+      .then(([accountData, technicianData, labData]) => {
         setAccounts(Array.isArray(accountData) ? accountData : []);
         setTechnicians(Array.isArray(technicianData) ? technicianData : []);
+        setServiceProducts(
+          Array.isArray(labData.products)
+            ? labData.products.filter((product: ServiceProduct) => product.isActive)
+            : []
+        );
       })
       .catch(() => {
         setAccounts([]);
@@ -263,6 +278,14 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
   }, []);
 
   const selectedAccount = accounts.find((account) => account.id === dentalAccountId) ?? null;
+  const serviceTree = useMemo(() => {
+    if (!serviceProducts.length) return SERVICE_TREE;
+    return serviceProducts.reduce<Record<string, string[]>>((tree, product) => {
+      tree[product.department] = tree[product.department] ?? [];
+      tree[product.department].push(product.name);
+      return tree;
+    }, {});
+  }, [serviceProducts]);
 
   const filteredAccounts = useMemo(() => {
     const query = accountSearch.trim().toLowerCase();
@@ -568,7 +591,7 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
                         <TextInput value="" onChange={() => undefined} placeholder="Search services" />
                       </div>
                       <div className="max-h-[320px] overflow-auto">
-                        {Object.entries(SERVICE_TREE).map(([department, products]) => {
+                        {Object.entries(serviceTree).map(([department, products]) => {
                           const open = expandedGroups[department];
                           return (
                             <div key={department}>
@@ -584,7 +607,15 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
                                 <button
                                   key={product}
                                   type="button"
-                                  onClick={() => setItems((current) => [...current, makeItem(product, department)])}
+                                  onClick={() => {
+                                    const catalogItem = serviceProducts.find(
+                                      (candidate) => candidate.department === department && candidate.name === product
+                                    );
+                                    setItems((current) => [
+                                      ...current,
+                                      makeItem(product, department, Number(catalogItem?.defaultPrice ?? 0)),
+                                    ]);
+                                  }}
                                   className="flex w-full items-center gap-2 border-b border-slate-900 px-5 py-1.5 text-left text-xs text-slate-300 hover:bg-sky-950 hover:text-white"
                                 >
                                   <Plus className="h-3 w-3 text-slate-500" />

@@ -127,7 +127,7 @@ export default function CasesTable({ cases, onStatusChange }: Props) {
                   <tr key={c.id} className="hover:bg-gray-700/20 transition-colors">
                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap">
                       <Link
-                        href={`/cases/${c.id}`}
+                        href={`/cases/${encodeURIComponent(c.caseNumber)}`}
                         className="text-sky-400 hover:text-sky-300 hover:underline underline-offset-2 transition-colors"
                       >
                         {c.caseNumber}

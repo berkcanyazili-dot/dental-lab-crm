@@ -57,6 +57,7 @@ interface CaseNote {
   id: string;
   content: string;
   authorName: string;
+  visibleToDoctor: boolean;
   createdAt: string;
 }
 
@@ -271,6 +272,7 @@ export default function CaseDetailPage() {
   const [internalNotes, setInternalNotes] = useState("");
 
   const [newNote, setNewNote] = useState("");
+  const [newNoteVisibleToDoctor, setNewNoteVisibleToDoctor] = useState(false);
   const [submittingNote, setSubmittingNote] = useState(false);
   const [fdaCaseItemId, setFdaCaseItemId] = useState("");
   const [fdaItemName, setFdaItemName] = useState("");
@@ -475,9 +477,13 @@ export default function CaseDetailPage() {
     await fetch(`/api/cases/${id}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: newNote.trim() }),
+      body: JSON.stringify({
+        content: newNote.trim(),
+        visibleToDoctor: newNoteVisibleToDoctor,
+      }),
     });
     setNewNote("");
+    setNewNoteVisibleToDoctor(false);
     await load();
     setSubmittingNote(false);
   };
@@ -919,14 +925,25 @@ export default function CaseDetailPage() {
 
               {/* Add note */}
               <div className="flex gap-2 mb-4">
-                <textarea
-                  value={newNote}
-                  onChange={(e) => setNewNote(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && e.metaKey) submitNote(); }}
-                  rows={2}
-                  placeholder="Add a note… (⌘+Enter to submit)"
-                  className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors resize-none"
-                />
+                <div className="flex-1">
+                  <textarea
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && e.metaKey) submitNote(); }}
+                    rows={2}
+                    placeholder="Add a note… (⌘+Enter to submit)"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors resize-none"
+                  />
+                  <label className="mt-2 inline-flex items-center gap-2 text-xs text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={newNoteVisibleToDoctor}
+                      onChange={(e) => setNewNoteVisibleToDoctor(e.target.checked)}
+                      className="h-4 w-4 accent-sky-500"
+                    />
+                    Visible to doctor and notify by email/SMS
+                  </label>
+                </div>
                 <button
                   onClick={submitNote}
                   disabled={submittingNote || !newNote.trim()}
@@ -948,6 +965,11 @@ export default function CaseDetailPage() {
                           <span className="text-sky-400 text-[9px] font-bold">{note.authorName[0]}</span>
                         </div>
                         <span className="text-xs font-medium text-gray-300">{note.authorName}</span>
+                        {note.visibleToDoctor && (
+                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                            Doctor Visible
+                          </span>
+                        )}
                         <span className="text-xs text-gray-600 ml-auto flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {new Date(note.createdAt).toLocaleString("en-US", {

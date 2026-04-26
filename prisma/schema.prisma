@@ -354,6 +354,7 @@ model CaseNote {
   case       Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
   content    String
   authorName String   @default("System")
+  visibleToDoctor Boolean @default(false)
   createdAt  DateTime @default(now())
 }
 

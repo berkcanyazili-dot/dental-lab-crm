@@ -1,11 +1,80 @@
 import { NextAuthOptions } from "next-auth";
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import CredentialsProvider from "next-auth/providers/credentials";
+import EmailProvider from "next-auth/providers/email";
 import { prisma } from "./prisma";
 import bcrypt from "bcryptjs";
 
+async function sendMagicLinkEmail({
+  identifier,
+  url,
+}: {
+  identifier: string;
+  url: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+
+  if (!apiKey || !from) {
+    throw new Error("Magic link email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.");
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [identifier],
+      subject: "Your Dental Lab CRM sign-in link",
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111827;">
+          <h2 style="margin: 0 0 16px;">Sign in to Dental Lab CRM</h2>
+          <p style="margin: 0 0 16px;">
+            Click the secure link below to sign in. This link expires automatically.
+          </p>
+          <p style="margin: 0 0 24px;">
+            <a href="${url}" style="display:inline-block;background:#0284c7;color:white;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">
+              Sign In with Magic Link
+            </a>
+          </p>
+          <p style="margin: 0 0 8px; color: #4b5563;">
+            If the button doesn&apos;t work, copy and paste this URL into your browser:
+          </p>
+          <p style="margin: 0; color: #0369a1; word-break: break-all;">${url}</p>
+        </div>
+      `,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Failed to send magic link email. ${body}`);
+  }
+}
+
+async function buildSessionUser(userId?: string | null, email?: string | null) {
+  if (!userId && !email) return null;
+
+  return prisma.user.findFirst({
+    where: userId ? { id: userId } : { email: email ?? undefined },
+    include: { technician: { select: { id: true } } },
+  });
+}
+
 export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
   providers: [
+    EmailProvider({
+      from: process.env.RESEND_FROM_EMAIL,
+      maxAge: 15 * 60,
+      sendVerificationRequest: async ({ identifier, url }) => {
+        await sendMagicLinkEmail({ identifier, url });
+      },
+    }),
     CredentialsProvider({
       name: "credentials",
       credentials: {
@@ -34,14 +103,39 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      if (account?.provider !== "email") {
+        return true;
+      }
+
+      const targetEmail = user.email;
+      if (!targetEmail) {
+        return false;
+      }
+
+      const existingUser = await prisma.user.findUnique({
+        where: { email: targetEmail },
+        select: { id: true },
+      });
+
+      // Allow magic links only for already-provisioned users.
+      return Boolean(existingUser);
+    },
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as { role?: string }).role;
-        token.tenantId = (user as { tenantId?: string | null }).tenantId;
-        token.dentalAccountId = (user as { dentalAccountId?: string | null }).dentalAccountId;
-        token.technicianId = (user as { technicianId?: string | null }).technicianId;
         token.sub = (user as { id?: string }).id ?? token.sub;
       }
+
+      const dbUser = await buildSessionUser(token.sub as string | undefined, token.email ?? null);
+      if (dbUser) {
+        token.email = dbUser.email;
+        token.name = dbUser.name ?? token.name;
+        token.role = dbUser.role;
+        token.tenantId = dbUser.tenantId;
+        token.dentalAccountId = dbUser.dentalAccountId;
+        token.technicianId = dbUser.technician?.id ?? null;
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -58,6 +152,9 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  pages: { signIn: "/login" },
+  pages: {
+    signIn: "/login",
+    verifyRequest: "/login/verify-request",
+  },
   secret: process.env.NEXTAUTH_SECRET,
 };

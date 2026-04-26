@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { FlaskConical, Loader2 } from "lucide-react";
+import { FlaskConical, Loader2, MailCheck } from "lucide-react";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -13,10 +13,13 @@ export default function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSendingMagicLink, setIsSendingMagicLink] = useState(false);
+  const [magicLinkMessage, setMagicLinkMessage] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setMagicLinkMessage("");
     setIsSubmitting(true);
 
     const result = await signIn("credentials", {
@@ -37,6 +40,31 @@ export default function LoginForm() {
     router.refresh();
   }
 
+  async function handleMagicLink() {
+    setError("");
+    setMagicLinkMessage("");
+
+    if (!email.trim()) {
+      setError("Enter your email first.");
+      return;
+    }
+
+    setIsSendingMagicLink(true);
+    const result = await signIn("email", {
+      email,
+      redirect: false,
+      callbackUrl,
+    });
+    setIsSendingMagicLink(false);
+
+    if (result?.error) {
+      setError("We couldn’t send a magic link for that email.");
+      return;
+    }
+
+    setMagicLinkMessage("Magic link sent. Check your email to sign in.");
+  }
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -48,7 +76,7 @@ export default function LoginForm() {
         </div>
         <div>
           <h1 className="text-base font-semibold text-white">Dental Lab CRM</h1>
-          <p className="text-sm text-gray-400">Sign in to continue</p>
+          <p className="text-sm text-gray-400">Sign in with password or request a magic link</p>
         </div>
       </div>
 
@@ -84,6 +112,12 @@ export default function LoginForm() {
         </p>
       )}
 
+      {magicLinkMessage && (
+        <p className="mb-4 rounded-md border border-green-900/60 bg-green-950/40 px-3 py-2 text-sm text-green-200">
+          {magicLinkMessage}
+        </p>
+      )}
+
       <button
         type="submit"
         disabled={isSubmitting}
@@ -91,6 +125,22 @@ export default function LoginForm() {
       >
         {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
         Sign In
+      </button>
+
+      <div className="my-4 flex items-center gap-3 text-xs text-gray-500">
+        <div className="h-px flex-1 bg-gray-800" />
+        or
+        <div className="h-px flex-1 bg-gray-800" />
+      </div>
+
+      <button
+        type="button"
+        onClick={handleMagicLink}
+        disabled={isSendingMagicLink}
+        className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-700 bg-gray-950 px-4 py-2 text-sm font-semibold text-white transition hover:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
+      >
+        {isSendingMagicLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <MailCheck className="h-4 w-4" />}
+        Email Me a Magic Link
       </button>
     </form>
   );

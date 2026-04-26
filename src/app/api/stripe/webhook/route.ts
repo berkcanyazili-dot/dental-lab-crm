@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, StripeWebhookEventStatus } from "@prisma/client";
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
@@ -152,6 +152,46 @@ async function clearTenantSubscription(subscription: Stripe.Subscription) {
   });
 }
 
+async function claimWebhookEvent(event: Stripe.Event) {
+  const existing = await prisma.stripeWebhookEvent.findUnique({
+    where: { eventId: event.id },
+    select: { id: true, status: true },
+  });
+
+  if (!existing) {
+    await prisma.stripeWebhookEvent.create({
+      data: {
+        eventId: event.id,
+        eventType: event.type,
+        status: StripeWebhookEventStatus.PROCESSING,
+        stripeCreated: new Date(event.created * 1000),
+      },
+    });
+    return "claimed" as const;
+  }
+
+  if (existing.status === StripeWebhookEventStatus.PROCESSED) {
+    return "already_processed" as const;
+  }
+
+  if (existing.status === StripeWebhookEventStatus.PROCESSING) {
+    return "already_processing" as const;
+  }
+
+  const resumed = await prisma.stripeWebhookEvent.updateMany({
+    where: {
+      eventId: event.id,
+      status: StripeWebhookEventStatus.FAILED,
+    },
+    data: {
+      status: StripeWebhookEventStatus.PROCESSING,
+      error: null,
+    },
+  });
+
+  return resumed.count > 0 ? ("claimed" as const) : ("already_processing" as const);
+}
+
 export async function POST(request: Request) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
@@ -176,30 +216,55 @@ export async function POST(request: Request) {
     );
   }
 
-  if (
-    event.type === "checkout.session.completed" ||
-    event.type === "checkout.session.async_payment_succeeded"
-  ) {
-    const session = event.data.object as Stripe.Checkout.Session;
-    if (session.mode === "subscription" && typeof session.subscription === "string") {
-      const subscription = await stripe.subscriptions.retrieve(session.subscription);
-      await syncTenantSubscription(subscription, session.metadata?.tenantId ?? null);
-    } else {
-      await applyCheckoutPayment(session);
+  const claim = await claimWebhookEvent(event);
+  if (claim === "already_processed" || claim === "already_processing") {
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
+  try {
+    if (
+      event.type === "checkout.session.completed" ||
+      event.type === "checkout.session.async_payment_succeeded"
+    ) {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.mode === "subscription" && typeof session.subscription === "string") {
+        const subscription = await stripe.subscriptions.retrieve(session.subscription);
+        await syncTenantSubscription(subscription, session.metadata?.tenantId ?? null);
+      } else {
+        await applyCheckoutPayment(session);
+      }
     }
-  }
 
-  if (
-    event.type === "customer.subscription.created" ||
-    event.type === "customer.subscription.updated"
-  ) {
-    const subscription = event.data.object as Stripe.Subscription;
-    await syncTenantSubscription(subscription);
-  }
+    if (
+      event.type === "customer.subscription.created" ||
+      event.type === "customer.subscription.updated"
+    ) {
+      const subscription = event.data.object as Stripe.Subscription;
+      await syncTenantSubscription(subscription);
+    }
 
-  if (event.type === "customer.subscription.deleted") {
-    const subscription = event.data.object as Stripe.Subscription;
-    await clearTenantSubscription(subscription);
+    if (event.type === "customer.subscription.deleted") {
+      const subscription = event.data.object as Stripe.Subscription;
+      await clearTenantSubscription(subscription);
+    }
+
+    await prisma.stripeWebhookEvent.update({
+      where: { eventId: event.id },
+      data: {
+        status: StripeWebhookEventStatus.PROCESSED,
+        processedAt: new Date(),
+        error: null,
+      },
+    });
+  } catch (error) {
+    await prisma.stripeWebhookEvent.update({
+      where: { eventId: event.id },
+      data: {
+        status: StripeWebhookEventStatus.FAILED,
+        error: error instanceof Error ? error.message : "Unknown Stripe webhook error",
+      },
+    });
+    return NextResponse.json({ error: "Webhook processing failed." }, { status: 500 });
   }
 
   return NextResponse.json({ received: true });

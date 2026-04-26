@@ -113,6 +113,12 @@ enum NotificationJobStatus {
   FAILED
 }
 
+enum StripeWebhookEventStatus {
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
 model NumberSequence {
   name      String
   value     Int      @default(0)
@@ -145,6 +151,20 @@ model NotificationJob {
   updatedAt   DateTime              @updatedAt
 
   @@index([status, queuedAt])
+}
+
+model StripeWebhookEvent {
+  id            String                   @id @default(cuid())
+  eventId       String                   @unique
+  eventType     String
+  status        StripeWebhookEventStatus @default(PROCESSING)
+  stripeCreated DateTime
+  processedAt   DateTime?
+  error         String?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@index([status, createdAt])
 }
 
 model Tenant {

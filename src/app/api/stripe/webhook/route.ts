@@ -85,6 +85,73 @@ async function applyCheckoutPayment(session: Stripe.Checkout.Session) {
   });
 }
 
+async function syncTenantSubscription(
+  subscription: Stripe.Subscription,
+  fallbackTenantId?: string | null
+) {
+  const tenantId =
+    subscription.metadata?.tenantId ||
+    fallbackTenantId ||
+    null;
+
+  const lookup = tenantId
+    ? { id: tenantId }
+    : typeof subscription.customer === "string"
+      ? { stripeCustomerId: subscription.customer }
+      : { stripeSubscriptionId: subscription.id };
+
+  const tenant = await prisma.tenant.findFirst({
+    where: lookup,
+    select: { id: true },
+  });
+
+  if (!tenant) {
+    return;
+  }
+
+  await prisma.tenant.update({
+    where: { id: tenant.id },
+    data: {
+      stripeCustomerId:
+        typeof subscription.customer === "string" ? subscription.customer : null,
+      stripeSubscriptionId: subscription.id,
+      stripeSubscriptionStatus: subscription.status,
+      stripeSubscriptionCurrentPeriodEnd:
+        subscription.items.data[0]?.current_period_end
+          ? new Date(subscription.items.data[0].current_period_end * 1000)
+          : null,
+    },
+  });
+}
+
+async function clearTenantSubscription(subscription: Stripe.Subscription) {
+  const tenant = await prisma.tenant.findFirst({
+    where: {
+      OR: [
+        { stripeSubscriptionId: subscription.id },
+        ...(typeof subscription.customer === "string"
+          ? [{ stripeCustomerId: subscription.customer }]
+          : []),
+      ],
+    },
+    select: { id: true },
+  });
+
+  if (!tenant) {
+    return;
+  }
+
+  await prisma.tenant.update({
+    where: { id: tenant.id },
+    data: {
+      stripeSubscriptionId: null,
+      stripeSubscriptionStatus: subscription.status,
+      stripeSubscriptionCurrentPeriodEnd:
+        subscription.ended_at ? new Date(subscription.ended_at * 1000) : null,
+    },
+  });
+}
+
 export async function POST(request: Request) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
@@ -114,7 +181,25 @@ export async function POST(request: Request) {
     event.type === "checkout.session.async_payment_succeeded"
   ) {
     const session = event.data.object as Stripe.Checkout.Session;
-    await applyCheckoutPayment(session);
+    if (session.mode === "subscription" && typeof session.subscription === "string") {
+      const subscription = await stripe.subscriptions.retrieve(session.subscription);
+      await syncTenantSubscription(subscription, session.metadata?.tenantId ?? null);
+    } else {
+      await applyCheckoutPayment(session);
+    }
+  }
+
+  if (
+    event.type === "customer.subscription.created" ||
+    event.type === "customer.subscription.updated"
+  ) {
+    const subscription = event.data.object as Stripe.Subscription;
+    await syncTenantSubscription(subscription);
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    const subscription = event.data.object as Stripe.Subscription;
+    await clearTenantSubscription(subscription);
   }
 
   return NextResponse.json({ received: true });

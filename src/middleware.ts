@@ -5,6 +5,8 @@ import { getToken } from "next-auth/jwt";
 const PUBLIC_API_ROUTES = [
   "/api/auth",
   "/api/shopify/webhook",
+  "/api/stripe/webhook",
+  "/api/internal/tenant-subscription",
 ];
 
 function isPublicApiRoute(pathname: string) {
@@ -19,6 +21,10 @@ function isApiRoute(pathname: string) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isUpgradePath = pathname === "/billing/upgrade" || pathname.startsWith("/billing/upgrade/");
+  const isSubscriptionCheckoutPath =
+    pathname === "/api/billing/subscription/checkout" ||
+    pathname.startsWith("/api/billing/subscription/checkout/");
 
   if (isPublicApiRoute(pathname)) {
     return NextResponse.next();
@@ -31,12 +37,46 @@ export async function middleware(request: NextRequest) {
 
   if (token) {
     const role = token.role;
+    const tenantId = typeof token.tenantId === "string" ? token.tenantId : null;
     const isDoctor = role === "DOCTOR";
     const isTechnician = role === "TECHNICIAN";
     const isPortalPath = pathname === "/portal" || pathname.startsWith("/portal/");
     const isPortalApiPath = pathname === "/api/portal" || pathname.startsWith("/api/portal/");
     const isTechPath = pathname === "/tech" || pathname.startsWith("/tech/");
     const isTechApiPath = pathname === "/api/tech" || pathname.startsWith("/api/tech/");
+
+    if (tenantId && !isUpgradePath && !isSubscriptionCheckoutPath && !pathname.startsWith("/api/auth")) {
+      try {
+        const subscriptionResponse = await fetch(
+          new URL(`/api/internal/tenant-subscription?tenantId=${tenantId}`, request.url),
+          {
+            headers: {
+              "x-internal-auth": process.env.NEXTAUTH_SECRET ?? "",
+            },
+            cache: "no-store",
+          }
+        );
+
+        if (subscriptionResponse.ok) {
+          const subscription = (await subscriptionResponse.json()) as { active?: boolean };
+          if (!subscription.active) {
+            if (isApiRoute(pathname)) {
+              return NextResponse.json({ error: "Subscription required" }, { status: 402 });
+            }
+            const upgradeUrl = request.nextUrl.clone();
+            upgradeUrl.pathname = "/billing/upgrade";
+            return NextResponse.redirect(upgradeUrl);
+          }
+        }
+      } catch {
+        if (isApiRoute(pathname)) {
+          return NextResponse.json({ error: "Subscription check failed" }, { status: 503 });
+        }
+        const upgradeUrl = request.nextUrl.clone();
+        upgradeUrl.pathname = "/billing/upgrade";
+        return NextResponse.redirect(upgradeUrl);
+      }
+    }
 
     if (isDoctor && pathname === "/") {
       const portalUrl = request.nextUrl.clone();

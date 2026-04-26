@@ -125,6 +125,10 @@ model Tenant {
   id                    String                 @id @default(cuid())
   name                  String
   slug                  String                 @unique
+  stripeCustomerId      String?                @unique
+  stripeSubscriptionId  String?                @unique
+  stripeSubscriptionStatus String?
+  stripeSubscriptionCurrentPeriodEnd DateTime?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   users                 User[]
@@ -269,6 +273,7 @@ model DentalAccount {
   zip        String?
   notes      String?
   isActive   Boolean  @default(true)
+  deletedAt  DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   cases      Case[]
@@ -324,6 +329,7 @@ model Case {
   totalValue        Decimal       @default(0) @db.Decimal(12, 2)
   isPaid            Boolean       @default(false)
   invoiceNumber     String?
+  deletedAt         DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   items             CaseItem[]
@@ -345,6 +351,7 @@ model Attachment {
   fileUrl     String
   fileType    String
   uploadedBy  String
+  deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -362,6 +369,7 @@ model FDALot {
   lotNumber    String
   userName     String   @default("Staff")
   sortOrder    Int      @default(0)
+  deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -379,6 +387,7 @@ model CaseItem {
   material     String?
   notes        String?
   price        Decimal  @default(0) @db.Decimal(12, 2)
+  deletedAt    DateTime?
   fdaLots      FDALot[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -505,6 +514,7 @@ model Technician {
   userId        String?        @unique
   user          User?          @relation(fields: [userId], references: [id])
   isActive      Boolean        @default(true)
+  deletedAt     DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   cases         Case[]

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
+import { getSessionTenant } from "@/server/services/tenant";
 
 export interface ReportColumn {
   key: string;
@@ -30,7 +31,11 @@ function daysBetween(a: Date, b: Date) {
 
 type DateRange = { from: Date; to: Date };
 
-async function runReport(report: string, range: DateRange): Promise<ReportResult> {
+async function runReport(
+  report: string,
+  range: DateRange,
+  prisma: ReturnType<typeof getTenantPrisma>
+): Promise<ReportResult> {
   const { from, to } = range;
   const toEnd = new Date(to); toEnd.setHours(23, 59, 59, 999);
 
@@ -406,6 +411,67 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
       };
     }
 
+    case "remake-root-cause": {
+      const remakes = await prisma.case.findMany({
+        where: {
+          caseType: "REMAKE",
+          receivedDate: { gte: from, lte: toEnd },
+          originalCaseId: { not: null },
+        },
+        include: {
+          dentalAccount: { select: { name: true, doctorName: true } },
+          originalCase: {
+            select: {
+              caseNumber: true,
+              patientName: true,
+              totalValue: true,
+            },
+          },
+        },
+        orderBy: { receivedDate: "desc" },
+      });
+
+      const byDoctorReason: Record<string, { doctor: string; practice: string; reason: string; count: number; value: number }> = {};
+      for (const remake of remakes) {
+        const doctor = remake.dentalAccount.doctorName
+          ? `Dr. ${remake.dentalAccount.doctorName}`
+          : remake.dentalAccount.name;
+        const practice = remake.dentalAccount.name;
+        const reason = remake.remakeReason ?? "OTHER";
+        const key = `${doctor}__${practice}__${reason}`;
+        if (!byDoctorReason[key]) {
+          byDoctorReason[key] = { doctor, practice, reason, count: 0, value: 0 };
+        }
+        byDoctorReason[key].count += 1;
+        byDoctorReason[key].value += money(remake.totalValue);
+      }
+
+      return {
+        title: "Remake Root-Cause Report",
+        subtitle: `${fmtDate(from)} – ${fmtDate(toEnd)}`,
+        columns: [
+          { key: "doctor", label: "Doctor" },
+          { key: "practice", label: "Practice" },
+          { key: "reason", label: "Reason" },
+          { key: "count", label: "Remakes", align: "right", type: "number" },
+          { key: "value", label: "Remake Cost", align: "right", type: "currency" },
+        ],
+        rows: Object.values(byDoctorReason)
+          .sort((a, b) => b.value - a.value)
+          .map((row) => ({
+            doctor: row.doctor,
+            practice: row.practice,
+            reason: row.reason,
+            count: row.count,
+            value: fmt(row.value),
+          })),
+        totals: {
+          count: remakes.length,
+          value: remakes.reduce((sum, remake) => sum + money(remake.totalValue), 0),
+        },
+      };
+    }
+
     case "scheduled-cases-by-step": {
       const steps = await prisma.deptSchedule.findMany({
         include: {
@@ -536,6 +602,11 @@ async function runReport(report: string, range: DateRange): Promise<ReportResult
 }
 
 export async function POST(req: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { report, from, to } = await req.json();
   if (!report) return NextResponse.json({ error: "report is required" }, { status: 400 });
 
@@ -543,7 +614,8 @@ export async function POST(req: NextRequest) {
   const toDate = to ? new Date(to) : new Date();
 
   try {
-    const result = await runReport(report, { from: fromDate, to: toDate });
+    const prisma = getTenantPrisma(sessionTenant.tenantId);
+    const result = await runReport(report, { from: fromDate, to: toDate }, prisma);
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

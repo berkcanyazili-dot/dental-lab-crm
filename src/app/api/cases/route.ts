@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CaseStatus } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { createCase } from "@/server/services/cases";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { getSessionTenant } from "@/server/services/tenant";
@@ -30,6 +30,8 @@ const createCaseSchema = z
     technicianId: z.string().trim().min(1).optional().nullable(),
     priority: z.enum(["NORMAL", "RUSH", "STAT"]).default("NORMAL"),
     caseType: z.enum(["NEW", "REMAKE", "REPAIR"]).default("NEW"),
+    remakeReason: z.enum(["MARGIN", "SHADE", "FIT", "BITE", "BROKEN", "DOCTOR_ERROR", "LAB_ERROR", "PATIENT_CHANGE", "OTHER"]).optional().nullable(),
+    originalCaseId: z.string().trim().min(1).optional().nullable(),
     caseOrigin: z.enum(["LOCAL", "SHOPIFY"]).default("LOCAL"),
     route: z.enum(["LOCAL", "SHIP", "PICKUP"]).default("LOCAL"),
     rushOrder: z.coerce.boolean().default(false),
@@ -69,6 +71,7 @@ export async function GET(request: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
@@ -86,12 +89,17 @@ export async function GET(request: NextRequest) {
 
   const cases = await prisma.case.findMany({
     where: {
-      tenantId: sessionTenant.tenantId,
+      deletedAt: null,
       ...(status ? { status: statuses.length > 1 ? { in: statuses } : statuses[0] } : {}),
       ...(accountId ? { dentalAccountId: accountId } : {}),
       ...(caseNumber ? { caseNumber: { contains: caseNumber.toUpperCase() } } : {}),
     },
-    include: { dentalAccount: true, technician: true, items: true, schedule: { include: { technician: true }, orderBy: { sortOrder: "asc" } } },
+    include: {
+      dentalAccount: true,
+      technician: true,
+      items: { where: { deletedAt: null } },
+      schedule: { include: { technician: true }, orderBy: { sortOrder: "asc" } },
+    },
     orderBy: { receivedDate: "desc" },
   });
   return NextResponse.json(cases);
@@ -102,6 +110,7 @@ export async function POST(request: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const body = await request.json();
   const parsed = createCaseSchema.safeParse(body);
@@ -120,6 +129,8 @@ export async function POST(request: NextRequest) {
     technicianId,
     priority,
     caseType,
+    remakeReason,
+    originalCaseId,
     caseOrigin,
     route,
     rushOrder,
@@ -144,7 +155,7 @@ export async function POST(request: NextRequest) {
   const authorName = await getSessionAuthorName();
 
   const account = await prisma.dentalAccount.findFirst({
-    where: { id: dentalAccountId, tenantId: sessionTenant.tenantId },
+    where: { id: dentalAccountId, deletedAt: null },
     select: { id: true },
   });
   if (!account) {
@@ -153,12 +164,29 @@ export async function POST(request: NextRequest) {
 
   if (technicianId) {
     const technician = await prisma.technician.findFirst({
-      where: { id: technicianId, tenantId: sessionTenant.tenantId },
+      where: { id: technicianId, deletedAt: null },
       select: { id: true },
     });
     if (!technician) {
       return NextResponse.json({ error: "Technician not found in current tenant" }, { status: 400 });
     }
+  }
+
+  if (originalCaseId) {
+    const originalCase = await prisma.case.findFirst({
+      where: { id: originalCaseId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!originalCase) {
+      return NextResponse.json({ error: "Original case not found in current tenant" }, { status: 400 });
+    }
+  }
+
+  if (caseType === "REMAKE" && !originalCaseId) {
+    return NextResponse.json(
+      { error: "Remake cases must be linked to an original case" },
+      { status: 400 }
+    );
   }
 
   const newCase = await createCase(
@@ -174,6 +202,8 @@ export async function POST(request: NextRequest) {
       technicianId,
       priority,
       caseType,
+      remakeReason: caseType === "REMAKE" ? remakeReason ?? "OTHER" : null,
+      originalCaseId: caseType === "REMAKE" ? originalCaseId ?? null : null,
       caseOrigin,
       route,
       rushOrder,

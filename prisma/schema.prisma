@@ -37,6 +37,18 @@ enum CaseType {
   REPAIR
 }
 
+enum RemakeReason {
+  MARGIN
+  SHADE
+  FIT
+  BITE
+  BROKEN
+  DOCTOR_ERROR
+  LAB_ERROR
+  PATIENT_CHANGE
+  OTHER
+}
+
 enum CaseOrigin {
   LOCAL
   SHOPIFY
@@ -345,6 +357,10 @@ model Case {
   status            CaseStatus    @default(INCOMING)
   priority          PriorityLevel @default(NORMAL)
   caseType          CaseType      @default(NEW)
+  remakeReason      RemakeReason?
+  originalCaseId    String?
+  originalCase      Case?         @relation("CaseRemakes", fields: [originalCaseId], references: [id], onDelete: SetNull)
+  remakes           Case[]        @relation("CaseRemakes")
   caseOrigin        CaseOrigin    @default(LOCAL)
   route             CaseRoute     @default(LOCAL)
   rushOrder         Boolean       @default(false)
@@ -388,6 +404,8 @@ model Case {
   fdaLots           FDALot[]
   attachments       Attachment[]
   modelAnnotations  CaseModelAnnotation[]
+
+  @@index([originalCaseId])
 }
 
 model Attachment {

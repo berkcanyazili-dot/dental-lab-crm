@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { fulfillShopifyOrder, isConfigured } from "@/lib/shopify";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { getSessionTenant } from "@/server/services/tenant";
@@ -19,6 +19,8 @@ const updateCaseSchema = z
     status: z.enum(["INCOMING", "IN_LAB", "WIP", "HOLD", "REMAKE", "COMPLETE", "SHIPPED"]).optional(),
     priority: z.enum(["NORMAL", "RUSH", "STAT"]).optional(),
     caseType: z.enum(["NEW", "REMAKE", "REPAIR"]).optional(),
+    remakeReason: z.enum(["MARGIN", "SHADE", "FIT", "BITE", "BROKEN", "DOCTOR_ERROR", "LAB_ERROR", "PATIENT_CHANGE", "OTHER"]).optional().nullable(),
+    originalCaseId: z.string().trim().min(1).optional().nullable(),
     caseOrigin: z.enum(["LOCAL", "SHOPIFY"]).optional(),
     route: z.enum(["LOCAL", "SHIP", "PICKUP"]).optional(),
     rushOrder: z.coerce.boolean().optional(),
@@ -76,12 +78,32 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const c = await prisma.case.findFirst({
     where: buildCaseLookupWhere(params.id, sessionTenant.tenantId),
     include: {
       dentalAccount: true,
       technician: true,
+      originalCase: {
+        select: {
+          id: true,
+          caseNumber: true,
+          patientName: true,
+        },
+      },
+      remakes: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          caseNumber: true,
+          patientName: true,
+          remakeReason: true,
+          status: true,
+          totalValue: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
       items: { where: { deletedAt: null } },
       fdaLots: {
         where: { deletedAt: null },
@@ -133,6 +155,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const payload = await request.json();
   const parsed = updateCaseSchema.safeParse(payload);
@@ -143,10 +166,27 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   const existingCase = await prisma.case.findFirst({
     where: buildCaseLookupWhere(params.id, sessionTenant.tenantId),
-    select: { id: true },
+    select: { id: true, caseType: true },
   });
   if (!existingCase) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (body.originalCaseId) {
+    const originalCase = await prisma.case.findFirst({
+      where: { id: body.originalCaseId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!originalCase) {
+      return NextResponse.json({ error: "Original case not found in current tenant" }, { status: 400 });
+    }
+  }
+
+  if (body.caseType === "REMAKE" && body.originalCaseId === undefined && existingCase.caseType !== "REMAKE") {
+    return NextResponse.json(
+      { error: "Remake cases must be linked to an original case" },
+      { status: 400 }
+    );
   }
 
   const before = await prisma.case.findUnique({ where: { id: existingCase.id } });
@@ -156,6 +196,25 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     include: {
       dentalAccount: true,
       technician: true,
+      originalCase: {
+        select: {
+          id: true,
+          caseNumber: true,
+          patientName: true,
+        },
+      },
+      remakes: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          caseNumber: true,
+          patientName: true,
+          remakeReason: true,
+          status: true,
+          totalValue: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
       items: { where: { deletedAt: null } },
       fdaLots: {
         where: { deletedAt: null },
@@ -252,6 +311,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
   const authorName = await getSessionAuthorName();
 
   const existingCase = await prisma.case.findFirst({

@@ -108,6 +108,8 @@ export interface CreateCaseInput {
   status?: Prisma.CaseUncheckedCreateInput["status"];
   priority?: Prisma.CaseUncheckedCreateInput["priority"];
   caseType?: Prisma.CaseUncheckedCreateInput["caseType"];
+  remakeReason?: Prisma.CaseUncheckedCreateInput["remakeReason"];
+  originalCaseId?: string | null;
   caseOrigin?: Prisma.CaseUncheckedCreateInput["caseOrigin"];
   route?: Prisma.CaseUncheckedCreateInput["route"];
   rushOrder?: boolean;
@@ -197,6 +199,8 @@ export async function createCaseWithTx(
       status: input.status,
       priority: input.priority,
       caseType: input.caseType,
+      remakeReason: input.remakeReason,
+      originalCaseId: input.originalCaseId,
       caseOrigin: input.caseOrigin,
       route: input.route,
       rushOrder: input.rushOrder,

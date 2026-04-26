@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const paymentSchema = z
   .object({
@@ -24,14 +25,24 @@ function parsePaymentAmount(amount: string | number) {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const payments = await prisma.payment.findMany({
-    where: { invoiceId: params.id },
+    where: { tenantId: sessionTenant.tenantId, invoiceId: params.id },
     orderBy: { dateApplied: "asc" },
   });
   return NextResponse.json(payments);
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const parsed = paymentSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json(
@@ -50,11 +61,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { checkNumber, paymentType, notes, referenceId, accountNumber, dateApplied } = parsed.data;
 
   const payment = await prisma.$transaction(async (tx) => {
-    const invoice = await tx.invoice.findUnique({ where: { id: params.id } });
+    const invoice = await tx.invoice.findFirst({ where: { id: params.id, tenantId: sessionTenant.tenantId } });
     if (!invoice) return null;
 
     const createdPayment = await tx.payment.create({
       data: {
+        tenantId: sessionTenant.tenantId,
         invoiceId: params.id,
         amount: paymentAmount,
         checkNumber: checkNumber || null,
@@ -67,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     const paymentTotals = await tx.payment.aggregate({
-      where: { invoiceId: params.id },
+      where: { tenantId: sessionTenant.tenantId, invoiceId: params.id },
       _sum: { amount: true },
     });
     const totalPaid = paymentTotals._sum.amount ?? new Prisma.Decimal(0);

@@ -8,8 +8,8 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const account = await prisma.dentalAccount.findUnique({
-    where: { id: doctor.dentalAccountId },
+  const account = await prisma.dentalAccount.findFirst({
+    where: { id: doctor.dentalAccountId, tenantId: doctor.tenantId },
     select: {
       id: true,
       name: true,

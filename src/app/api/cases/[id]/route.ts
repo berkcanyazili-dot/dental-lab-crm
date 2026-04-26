@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { fulfillShopifyOrder, isConfigured } from "@/lib/shopify";
+import { getSessionAuthorName } from "@/server/services/authorship";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const updateCaseSchema = z
   .object({
@@ -55,10 +57,11 @@ function validationError(error: z.ZodError) {
   );
 }
 
-function buildCaseLookupWhere(rawId: string): Prisma.CaseWhereInput {
+function buildCaseLookupWhere(rawId: string, tenantId: string): Prisma.CaseWhereInput {
   const normalized = rawId.trim();
 
   return {
+    tenantId,
     OR: [
       { id: normalized },
       { caseNumber: normalized },
@@ -68,8 +71,13 @@ function buildCaseLookupWhere(rawId: string): Prisma.CaseWhereInput {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const c = await prisma.case.findFirst({
-    where: buildCaseLookupWhere(params.id),
+    where: buildCaseLookupWhere(params.id, sessionTenant.tenantId),
     include: {
       dentalAccount: true,
       technician: true,
@@ -97,15 +105,20 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const payload = await request.json();
   const parsed = updateCaseSchema.safeParse(payload);
   if (!parsed.success) return validationError(parsed.error);
 
   const { _authorName, ...body } = parsed.data;
-  const authorName = _authorName ?? "Staff";
+  const authorName = _authorName ?? await getSessionAuthorName();
 
   const existingCase = await prisma.case.findFirst({
-    where: buildCaseLookupWhere(params.id),
+    where: buildCaseLookupWhere(params.id, sessionTenant.tenantId),
     select: { id: true },
   });
   if (!existingCase) {
@@ -188,8 +201,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const existingCase = await prisma.case.findFirst({
-    where: buildCaseLookupWhere(params.id),
+    where: buildCaseLookupWhere(params.id, sessionTenant.tenantId),
     select: { id: true },
   });
   if (!existingCase) {

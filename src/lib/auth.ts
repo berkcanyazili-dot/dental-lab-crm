@@ -26,6 +26,7 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           name: user.name,
           role: user.role,
+          tenantId: user.tenantId,
           dentalAccountId: user.dentalAccountId,
           technicianId: user.technician?.id ?? null,
         };
@@ -36,14 +37,19 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.role = (user as { role?: string }).role;
+        token.tenantId = (user as { tenantId?: string | null }).tenantId;
         token.dentalAccountId = (user as { dentalAccountId?: string | null }).dentalAccountId;
         token.technicianId = (user as { technicianId?: string | null }).technicianId;
+        token.sub = (user as { id?: string }).id ?? token.sub;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
+        (session.user as { id?: string }).id = token.sub as string;
         (session.user as { role?: string }).role = token.role as string;
+        (session.user as { tenantId?: string | null }).tenantId =
+          token.tenantId as string | null;
         (session.user as { dentalAccountId?: string | null }).dentalAccountId =
           token.dentalAccountId as string | null;
         (session.user as { technicianId?: string | null }).technicianId =

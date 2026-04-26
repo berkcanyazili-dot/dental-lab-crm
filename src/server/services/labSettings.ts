@@ -33,18 +33,19 @@ const DEFAULT_WORKFLOW = [
   ["Shipping", 6, 1],
 ] as const;
 
-export async function ensureLabDefaults() {
+export async function ensureLabDefaults(tenantId: string) {
   const settings = await prisma.labSettings.upsert({
-    where: { id: "default" },
+    where: { tenantId },
     update: {},
-    create: { id: "default" },
+    create: { tenantId },
   });
 
   for (const [department, name, defaultPrice] of DEFAULT_PRODUCTS) {
     await prisma.serviceProduct.upsert({
-      where: { department_name: { department, name } },
+      where: { tenantId_department_name: { tenantId, department, name } },
       update: {},
       create: {
+        tenantId,
         department,
         name,
         defaultPrice: new Prisma.Decimal(defaultPrice),
@@ -55,23 +56,25 @@ export async function ensureLabDefaults() {
 
   for (const [department, sortOrder, leadDays] of DEFAULT_WORKFLOW) {
     await prisma.workflowStepTemplate.upsert({
-      where: { department },
+      where: { tenantId_department: { tenantId, department } },
       update: {},
-      create: { department, sortOrder, leadDays },
+      create: { tenantId, department, sortOrder, leadDays },
     });
   }
 
   return settings;
 }
 
-export async function getLabSettingsBundle() {
-  await ensureLabDefaults();
+export async function getLabSettingsBundle(tenantId: string) {
+  await ensureLabDefaults(tenantId);
   const [settings, products, workflow] = await Promise.all([
-    prisma.labSettings.findUnique({ where: { id: "default" } }),
+    prisma.labSettings.findUnique({ where: { tenantId } }),
     prisma.serviceProduct.findMany({
+      where: { tenantId },
       orderBy: [{ department: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
     }),
     prisma.workflowStepTemplate.findMany({
+      where: { tenantId },
       orderBy: [{ sortOrder: "asc" }, { department: "asc" }],
     }),
   ]);
@@ -79,12 +82,12 @@ export async function getLabSettingsBundle() {
   return { settings, products, workflow };
 }
 
-export async function getActiveWorkflowTemplates(client: ClientLike = prisma) {
+export async function getActiveWorkflowTemplates(client: ClientLike = prisma, tenantId: string) {
   if (client === prisma) {
-    await ensureLabDefaults();
+    await ensureLabDefaults(tenantId);
   }
   return client.workflowStepTemplate.findMany({
-    where: { isActive: true },
+    where: { tenantId, isActive: true },
     orderBy: [{ sortOrder: "asc" }, { department: "asc" }],
   });
 }

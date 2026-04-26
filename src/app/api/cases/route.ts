@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createCase } from "@/server/services/cases";
 import { getSessionAuthorName } from "@/server/services/authorship";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const caseItemSchema = z
   .object({
@@ -64,6 +65,11 @@ function validationError(error: z.ZodError) {
 }
 
 export async function GET(request: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const accountId = searchParams.get("accountId");
@@ -80,6 +86,7 @@ export async function GET(request: NextRequest) {
 
   const cases = await prisma.case.findMany({
     where: {
+      tenantId: sessionTenant.tenantId,
       ...(status ? { status: statuses.length > 1 ? { in: statuses } : statuses[0] } : {}),
       ...(accountId ? { dentalAccountId: accountId } : {}),
       ...(caseNumber ? { caseNumber: { contains: caseNumber.toUpperCase() } } : {}),
@@ -91,6 +98,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const body = await request.json();
   const parsed = createCaseSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
@@ -131,8 +143,27 @@ export async function POST(request: NextRequest) {
   } = parsed.data;
   const authorName = await getSessionAuthorName();
 
+  const account = await prisma.dentalAccount.findFirst({
+    where: { id: dentalAccountId, tenantId: sessionTenant.tenantId },
+    select: { id: true },
+  });
+  if (!account) {
+    return NextResponse.json({ error: "Account not found in current tenant" }, { status: 400 });
+  }
+
+  if (technicianId) {
+    const technician = await prisma.technician.findFirst({
+      where: { id: technicianId, tenantId: sessionTenant.tenantId },
+      select: { id: true },
+    });
+    if (!technician) {
+      return NextResponse.json({ error: "Technician not found in current tenant" }, { status: 400 });
+    }
+  }
+
   const newCase = await createCase(
     {
+      tenantId: sessionTenant.tenantId,
       patientName,
       patientFirst,
       patientMI,

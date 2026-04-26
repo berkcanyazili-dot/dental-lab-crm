@@ -29,6 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const invoice = await prisma.invoice.findFirst({
     where: {
       id: params.id,
+      tenantId: doctor.tenantId,
       dentalAccountId: doctor.dentalAccountId,
       status: { in: ["OPEN", "PARTIAL"] },
     },
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: "Invoice is already paid" }, { status: 400 });
   }
 
-  const settings = await prisma.labSettings.findUnique({ where: { id: "default" } });
+  const settings = await prisma.labSettings.findUnique({ where: { tenantId: doctor.tenantId } });
   const stripe = getStripe();
   const applicationFeeAmount =
     settings?.stripeApplicationFeeBasisPoints && settings.stripeApplicationFeeBasisPoints > 0

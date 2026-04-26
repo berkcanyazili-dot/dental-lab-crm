@@ -30,6 +30,7 @@ async function applyCheckoutPayment(session: Stripe.Checkout.Session) {
       where: { id: invoiceId },
       select: {
         id: true,
+        tenantId: true,
         caseId: true,
         invoiceTotal: true,
       },
@@ -41,6 +42,7 @@ async function applyCheckoutPayment(session: Stripe.Checkout.Session) {
 
     await tx.payment.create({
       data: {
+        tenantId: invoice.tenantId,
         invoiceId,
         amount: paymentAmount,
         paymentType: "CREDIT_CARD",

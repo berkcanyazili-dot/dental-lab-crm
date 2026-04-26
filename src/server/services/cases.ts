@@ -22,9 +22,10 @@ type TransactionClient = Omit<
  */
 async function buildScheduleSteps(
   tx: TransactionClient,
+  tenantId: string,
   items: CreateCaseItemInput[]
 ): Promise<Array<{ department: string; sortOrder: number; status: DeptScheduleStatus }>> {
-  const allTemplates = await getActiveWorkflowTemplates(tx);
+  const allTemplates = await getActiveWorkflowTemplates(tx, tenantId);
   const orderedProductTypes = Array.from(
     new Set(items.map((item) => item.productType.trim()).filter(Boolean))
   );
@@ -73,12 +74,13 @@ async function buildScheduleSteps(
  */
 async function resolveDueDate(
   tx: TransactionClient,
+  tenantId: string,
   receivedDate: Date,
   suppliedDueDate: Date | null | undefined
 ): Promise<Date> {
   if (suppliedDueDate != null) return suppliedDueDate;
 
-  const settings = await tx.labSettings.findUnique({ where: { id: "default" } });
+  const settings = await tx.labSettings.findUnique({ where: { tenantId } });
   const turnaroundDays = settings?.defaultTurnaroundDays ?? 7;
   return calculateDueDate(receivedDate, turnaroundDays);
 }
@@ -94,6 +96,7 @@ export interface CreateCaseItemInput {
 }
 
 export interface CreateCaseInput {
+  tenantId: string;
   patientName: string;
   patientFirst?: string | null;
   patientMI?: string | null;
@@ -172,15 +175,16 @@ export async function createCaseWithTx(
 
   // Resolve the receivedDate (default to now) and auto-compute dueDate if not supplied
   const receivedDate = input.receivedDate ?? new Date();
-  const dueDate = await resolveDueDate(tx, receivedDate, input.dueDate);
+  const dueDate = await resolveDueDate(tx, input.tenantId, receivedDate, input.dueDate);
 
   // Build the per-product schedule only when requested
   const scheduleSteps = input.generateSchedule
-    ? await buildScheduleSteps(tx, items)
+    ? await buildScheduleSteps(tx, input.tenantId, items)
     : [];
 
   return tx.case.create({
     data: {
+      tenantId: input.tenantId,
       caseNumber,
       patientName: input.patientName,
       patientFirst: input.patientFirst,

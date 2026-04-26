@@ -43,7 +43,7 @@ export async function GET() {
   }
 
   const cases = await prisma.case.findMany({
-    where: { dentalAccountId: doctor.dentalAccountId },
+    where: { tenantId: doctor.tenantId, dentalAccountId: doctor.dentalAccountId },
     select: {
       id: true,
       caseNumber: true,
@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
   const order = parsed.data;
   const newCase = await createCase(
     {
+      tenantId: doctor.tenantId,
       patientName: order.patientName,
       patientFirst: order.patientFirst,
       patientLast: order.patientLast,

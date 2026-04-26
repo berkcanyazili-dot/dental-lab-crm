@@ -4,11 +4,21 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
+  const tenant = await prisma.tenant.upsert({
+    where: { slug: "default-lab" },
+    update: {},
+    create: {
+      name: "Default Dental Lab",
+      slug: "default-lab",
+    },
+  });
+
   const adminPassword = await bcrypt.hash("admin123", 10);
   await prisma.user.upsert({
     where: { email: "admin@dentallab.com" },
-    update: {},
+    update: { tenantId: tenant.id },
     create: {
+      tenantId: tenant.id,
       email: "admin@dentallab.com",
       name: "Admin User",
       password: adminPassword,
@@ -20,17 +30,17 @@ async function main() {
     prisma.technician.upsert({
       where: { id: "tech-001" },
       update: {},
-      create: { id: "tech-001", name: "Maria Garcia", specialty: "Crown & Bridge" },
+      create: { id: "tech-001", tenantId: tenant.id, name: "Maria Garcia", specialty: "Crown & Bridge" },
     }),
     prisma.technician.upsert({
       where: { id: "tech-002" },
       update: {},
-      create: { id: "tech-002", name: "James Chen", specialty: "Full Arch" },
+      create: { id: "tech-002", tenantId: tenant.id, name: "James Chen", specialty: "Full Arch" },
     }),
     prisma.technician.upsert({
       where: { id: "tech-003" },
       update: {},
-      create: { id: "tech-003", name: "Sarah Johnson", specialty: "Cosmetics" },
+      create: { id: "tech-003", tenantId: tenant.id, name: "Sarah Johnson", specialty: "Cosmetics" },
     }),
   ]);
 
@@ -38,9 +48,10 @@ async function main() {
   const technicianUsers = await Promise.all([
     prisma.user.upsert({
       where: { email: "maria@dentallab.com" },
-      update: { role: "TECHNICIAN" },
+      update: { role: "TECHNICIAN", tenantId: tenant.id },
       create: {
         email: "maria@dentallab.com",
+        tenantId: tenant.id,
         name: "Maria Garcia",
         password: techPassword,
         role: "TECHNICIAN",
@@ -48,9 +59,10 @@ async function main() {
     }),
     prisma.user.upsert({
       where: { email: "james@dentallab.com" },
-      update: { role: "TECHNICIAN" },
+      update: { role: "TECHNICIAN", tenantId: tenant.id },
       create: {
         email: "james@dentallab.com",
+        tenantId: tenant.id,
         name: "James Chen",
         password: techPassword,
         role: "TECHNICIAN",
@@ -58,9 +70,10 @@ async function main() {
     }),
     prisma.user.upsert({
       where: { email: "sarah@dentallab.com" },
-      update: { role: "TECHNICIAN" },
+      update: { role: "TECHNICIAN", tenantId: tenant.id },
       create: {
         email: "sarah@dentallab.com",
+        tenantId: tenant.id,
         name: "Sarah Johnson",
         password: techPassword,
         role: "TECHNICIAN",
@@ -83,6 +96,7 @@ async function main() {
       update: {},
       create: {
         id: "acc-001",
+        tenantId: tenant.id,
         name: "Bright Smile Dental",
         doctorName: "Smith",
         email: "office@brightsmile.com",
@@ -96,6 +110,7 @@ async function main() {
       update: {},
       create: {
         id: "acc-002",
+        tenantId: tenant.id,
         name: "Family Dental Care",
         doctorName: "Johnson",
         email: "drjohnson@familydental.com",
@@ -109,6 +124,7 @@ async function main() {
       update: {},
       create: {
         id: "acc-003",
+        tenantId: tenant.id,
         name: "Advanced Oral Care",
         doctorName: "Williams",
         email: "office@advancedoral.com",
@@ -122,6 +138,7 @@ async function main() {
       update: {},
       create: {
         id: "acc-004",
+        tenantId: tenant.id,
         name: "Premier Dental Group",
         doctorName: "Martinez",
         phone: "(555) 456-7890",
@@ -134,8 +151,9 @@ async function main() {
   const doctorPassword = await bcrypt.hash("doctor123", 10);
   await prisma.user.upsert({
     where: { email: "doctor@brightsmile.com" },
-    update: { dentalAccountId: accounts[0].id, role: "DOCTOR" },
+    update: { dentalAccountId: accounts[0].id, role: "DOCTOR", tenantId: tenant.id },
     create: {
+      tenantId: tenant.id,
       email: "doctor@brightsmile.com",
       name: "Dr. Smith",
       password: doctorPassword,
@@ -277,6 +295,7 @@ async function main() {
       where: { id: caseFields.id },
       update: {},
       create: {
+        tenantId: tenant.id,
         ...caseFields,
         items: { create: items },
       } as any,

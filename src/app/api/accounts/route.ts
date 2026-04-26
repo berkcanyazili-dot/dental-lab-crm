@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const createAccountSchema = z
   .object({
@@ -23,6 +24,11 @@ const SEARCH_LIMIT = 12;
 
 export async function GET(request: NextRequest) {
   try {
+    const sessionTenant = await getSessionTenant();
+    if (!sessionTenant) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     const rawSearch = searchParams.get("search")?.trim() ?? "";
     const search = rawSearch.slice(0, 100);
@@ -36,6 +42,7 @@ export async function GET(request: NextRequest) {
     const accounts = await prisma.dentalAccount.findMany({
       where: search
         ? {
+            tenantId: sessionTenant.tenantId,
             OR: [
               { name: { contains: search, mode: "insensitive" } },
               { doctorName: { contains: search, mode: "insensitive" } },
@@ -43,7 +50,7 @@ export async function GET(request: NextRequest) {
               { phone: { contains: search, mode: "insensitive" } },
             ],
           }
-        : undefined,
+        : { tenantId: sessionTenant.tenantId },
       orderBy: { name: "asc" },
       take: limit,
       include: { _count: { select: { cases: true } } },
@@ -55,6 +62,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const parsed = createAccountSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json(
@@ -64,7 +76,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const account = await prisma.dentalAccount.create({ data: parsed.data });
+    const account = await prisma.dentalAccount.create({
+      data: {
+        tenantId: sessionTenant.tenantId,
+        ...parsed.data,
+      },
+    });
     return NextResponse.json(account, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Failed to create account" }, { status: 500 });

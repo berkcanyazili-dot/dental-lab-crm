@@ -7,6 +7,7 @@ import {
   buildPaymentExport,
   recordAccountingExport,
 } from "@/server/services/accounting";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const EXPORT_TYPES = ["INVOICES", "PAYMENTS", "CUSTOMERS"] as const;
 type ExportType = typeof EXPORT_TYPES[number];
@@ -25,13 +26,18 @@ function fileName(type: ExportType, startDate?: Date, endDate?: Date) {
   return `dental-lab-${type.toLowerCase()}-${range}.csv`;
 }
 
-async function buildExport(type: ExportType, startDate?: Date, endDate?: Date) {
-  if (type === "INVOICES") return buildInvoiceExport({ startDate, endDate });
-  if (type === "PAYMENTS") return buildPaymentExport({ startDate, endDate });
-  return buildCustomerExport();
+async function buildExport(tenantId: string, type: ExportType, startDate?: Date, endDate?: Date) {
+  if (type === "INVOICES") return buildInvoiceExport(tenantId, { startDate, endDate });
+  if (type === "PAYMENTS") return buildPaymentExport(tenantId, { startDate, endDate });
+  return buildCustomerExport(tenantId);
 }
 
 export async function GET() {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const exports = await prisma.accountingExport.findMany({
     orderBy: { createdAt: "desc" },
     take: 25,
@@ -41,6 +47,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const requestedType = searchParams.get("type")?.toUpperCase();
   const type = EXPORT_TYPES.includes(requestedType as ExportType)
@@ -49,7 +60,7 @@ export async function POST(request: NextRequest) {
   const startDate = parseDate(searchParams.get("startDate"));
   const endDate = parseDate(searchParams.get("endDate"));
 
-  const built = await buildExport(type, startDate, endDate);
+  const built = await buildExport(sessionTenant.tenantId, type, startDate, endDate);
   const name = fileName(type, startDate, endDate);
   await recordAccountingExport({
     type: type as AccountingExportType,

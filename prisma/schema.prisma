@@ -103,9 +103,11 @@ enum AccountingExportType {
 }
 
 model NumberSequence {
-  name      String   @id
+  name      String
   value     Int      @default(0)
   updatedAt DateTime @updatedAt
+  
+  @@id([name])
 }
 
 model AccountingExport {
@@ -119,8 +121,28 @@ model AccountingExport {
   createdAt   DateTime             @default(now())
 }
 
+model Tenant {
+  id                    String                 @id @default(cuid())
+  name                  String
+  slug                  String                 @unique
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  users                 User[]
+  dentalAccounts        DentalAccount[]
+  cases                 Case[]
+  technicians           Technician[]
+  invoices              Invoice[]
+  payments              Payment[]
+  labSettings           LabSettings?
+  shopifySettings       ShopifySettings?
+  serviceProducts       ServiceProduct[]
+  workflowStepTemplates WorkflowStepTemplate[]
+}
+
 model LabSettings {
-  id                 String   @id @default("default")
+  id                 String   @id @default(cuid())
+  tenantId           String?  @unique
+  tenant             Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   labName            String   @default("Dental Lab CRM")
   phone              String?
   email              String?
@@ -140,6 +162,8 @@ model LabSettings {
 
 model ServiceProduct {
   id           String   @id @default(cuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name         String
   department   String
   defaultPrice Decimal  @default(0) @db.Decimal(12, 2)
@@ -148,11 +172,13 @@ model ServiceProduct {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([department, name])
+  @@unique([tenantId, department, name])
 }
 
 model WorkflowStepTemplate {
   id          String   @id @default(cuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department  String
   sortOrder   Int      @default(0)
   leadDays    Int      @default(1)
@@ -160,11 +186,13 @@ model WorkflowStepTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([department])
+  @@unique([tenantId, department])
 }
 
 model ShopifySettings {
-  id               String   @id @default("default")
+  id               String   @id @default(cuid())
+  tenantId         String?  @unique
+  tenant           Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   storeUrl         String?
   adminToken       String?
   webhookSecret    String?
@@ -175,6 +203,8 @@ model ShopifySettings {
 
 model User {
   id            String        @id @default(cuid())
+  tenantId      String?
+  tenant        Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name          String?
   email         String        @unique
   emailVerified DateTime?
@@ -226,6 +256,8 @@ model VerificationToken {
 
 model DentalAccount {
   id         String   @id @default(cuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name       String
   doctorName String?
   email      String?
@@ -246,6 +278,8 @@ model DentalAccount {
 
 model Case {
   id                String        @id @default(cuid())
+  tenantId          String?
+  tenant            Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   caseNumber        String        @unique
   patientName       String
   patientFirst      String?
@@ -419,6 +453,8 @@ model ShopifyOrder {
 
 model Invoice {
   id              String        @id @default(cuid())
+  tenantId        String?
+  tenant          Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   caseId          String
   case            Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
   dentalAccountId String
@@ -444,6 +480,8 @@ model Invoice {
 
 model Payment {
   id            String      @id @default(cuid())
+  tenantId      String?
+  tenant        Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoiceId     String
   invoice       Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   amount        Decimal     @db.Decimal(12, 2)
@@ -460,6 +498,8 @@ model Payment {
 
 model Technician {
   id            String         @id @default(cuid())
+  tenantId      String?
+  tenant        Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name          String
   specialty     String?
   userId        String?        @unique

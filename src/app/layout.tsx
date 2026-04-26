@@ -18,7 +18,7 @@ export default async function RootLayout({
 }) {
   let labName = "Dental Lab";
   try {
-    const settings = await prisma.labSettings.findUnique({ where: { id: "default" } });
+    const settings = await prisma.labSettings.findFirst({ orderBy: { createdAt: "asc" } });
     if (settings?.labName) labName = settings.labName;
   } catch {
     // DB unavailable — fall back to default

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { getActiveWorkflowTemplates } from "@/server/services/labSettings";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const createScheduleSchema = z
   .object({
@@ -30,8 +31,13 @@ const patchScheduleSchema = z
   .strict();
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const steps = await prisma.deptSchedule.findMany({
-    where: { caseId: params.id },
+    where: { caseId: params.id, case: { tenantId: sessionTenant.tenantId } },
     include: { technician: true },
     orderBy: { sortOrder: "asc" },
   });
@@ -39,11 +45,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const body = await req.json();
   const authorName = await getSessionAuthorName();
   if (body.generate) {
-    await prisma.deptSchedule.deleteMany({ where: { caseId: params.id } });
-    const templates = await getActiveWorkflowTemplates();
+    await prisma.deptSchedule.deleteMany({ where: { caseId: params.id, case: { tenantId: sessionTenant.tenantId } } });
+    const templates = await getActiveWorkflowTemplates(prisma, sessionTenant.tenantId);
     const steps = await Promise.all(
       templates.map((template) =>
         prisma.deptSchedule.create({
@@ -79,6 +90,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const parsed = patchScheduleSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json(

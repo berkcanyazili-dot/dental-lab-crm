@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { ensureLabDefaults, getLabSettingsBundle } from "@/server/services/labSettings";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const labSettingsSchema = z
   .object({
@@ -52,12 +53,22 @@ const updateBundleSchema = z
   .strict();
 
 export async function GET() {
-  const bundle = await getLabSettingsBundle();
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const bundle = await getLabSettingsBundle(sessionTenant.tenantId);
   return NextResponse.json(bundle);
 }
 
 export async function POST(request: NextRequest) {
-  await ensureLabDefaults();
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  await ensureLabDefaults(sessionTenant.tenantId);
   const parsed = updateBundleSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json(
@@ -70,7 +81,7 @@ export async function POST(request: NextRequest) {
 
   await prisma.$transaction(async (tx) => {
     await tx.labSettings.upsert({
-      where: { id: "default" },
+      where: { tenantId: sessionTenant.tenantId },
       update: {
         labName: settings.labName,
         phone: settings.phone || null,
@@ -87,7 +98,7 @@ export async function POST(request: NextRequest) {
         stripeApplicationFeeBasisPoints: settings.stripeApplicationFeeBasisPoints,
       },
       create: {
-        id: "default",
+        tenantId: sessionTenant.tenantId,
         labName: settings.labName,
         phone: settings.phone || null,
         email: settings.email || null,
@@ -105,11 +116,16 @@ export async function POST(request: NextRequest) {
     });
 
     await tx.serviceProduct.deleteMany({
-      where: { id: { notIn: products.map((product) => product.id).filter(Boolean) as string[] } },
+      where: {
+        tenantId: sessionTenant.tenantId,
+        id: { notIn: products.map((product) => product.id).filter(Boolean) as string[] },
+      },
     });
     for (const product of products) {
       await tx.serviceProduct.upsert({
-        where: product.id ? { id: product.id } : { department_name: { department: product.department, name: product.name } },
+        where: product.id
+          ? { id: product.id }
+          : { tenantId_department_name: { tenantId: sessionTenant.tenantId, department: product.department, name: product.name } },
         update: {
           name: product.name,
           department: product.department,
@@ -118,6 +134,7 @@ export async function POST(request: NextRequest) {
           sortOrder: product.sortOrder,
         },
         create: {
+          tenantId: sessionTenant.tenantId,
           name: product.name,
           department: product.department,
           defaultPrice: new Prisma.Decimal(product.defaultPrice),
@@ -128,11 +145,16 @@ export async function POST(request: NextRequest) {
     }
 
     await tx.workflowStepTemplate.deleteMany({
-      where: { id: { notIn: workflow.map((step) => step.id).filter(Boolean) as string[] } },
+      where: {
+        tenantId: sessionTenant.tenantId,
+        id: { notIn: workflow.map((step) => step.id).filter(Boolean) as string[] },
+      },
     });
     for (const step of workflow) {
       await tx.workflowStepTemplate.upsert({
-        where: step.id ? { id: step.id } : { department: step.department },
+        where: step.id
+          ? { id: step.id }
+          : { tenantId_department: { tenantId: sessionTenant.tenantId, department: step.department } },
         update: {
           department: step.department,
           sortOrder: step.sortOrder,
@@ -140,6 +162,7 @@ export async function POST(request: NextRequest) {
           isActive: step.isActive,
         },
         create: {
+          tenantId: sessionTenant.tenantId,
           department: step.department,
           sortOrder: step.sortOrder,
           leadDays: step.leadDays,
@@ -149,6 +172,6 @@ export async function POST(request: NextRequest) {
     }
   });
 
-  const bundle = await getLabSettingsBundle();
+  const bundle = await getLabSettingsBundle(sessionTenant.tenantId);
   return NextResponse.json({ success: true, ...bundle });
 }

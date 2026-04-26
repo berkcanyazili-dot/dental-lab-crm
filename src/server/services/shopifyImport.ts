@@ -5,7 +5,6 @@ import { mapOrderToCase, type ShopifyOrderRaw } from "@/lib/shopify";
 import { createCaseWithTx } from "./cases";
 
 const API_VERSION = "2024-01";
-const SETTINGS_ID = "default";
 
 export interface ShopifySettingsInput {
   storeUrl?: string | null;
@@ -14,21 +13,31 @@ export interface ShopifySettingsInput {
   defaultAccountId?: string | null;
 }
 
+async function resolveFallbackTenantId() {
+  const tenant = await prisma.tenant.findFirst({ orderBy: { createdAt: "asc" } });
+  if (!tenant) {
+    throw new Error("No tenant found.");
+  }
+  return tenant.id;
+}
+
 function normalizeHost(storeUrl?: string | null) {
   return (storeUrl ?? "").replace(/^https?:\/\//, "").replace(/\/$/, "");
 }
 
-export async function getShopifySettings() {
-  return prisma.shopifySettings.findUnique({ where: { id: SETTINGS_ID } });
+export async function getShopifySettings(tenantId?: string) {
+  const resolvedTenantId = tenantId ?? (await resolveFallbackTenantId());
+  return prisma.shopifySettings.findUnique({ where: { tenantId: resolvedTenantId } });
 }
 
 export function isShopifyConfigured(settings: ShopifySettingsInput | null) {
   return !!(settings?.storeUrl && settings.adminToken);
 }
 
-export async function upsertShopifySettings(input: ShopifySettingsInput) {
+export async function upsertShopifySettings(input: ShopifySettingsInput, tenantId?: string) {
+  const resolvedTenantId = tenantId ?? (await resolveFallbackTenantId());
   return prisma.shopifySettings.upsert({
-    where: { id: SETTINGS_ID },
+    where: { tenantId: resolvedTenantId },
     update: {
       ...(input.storeUrl !== undefined ? { storeUrl: input.storeUrl || null } : {}),
       ...(input.adminToken !== undefined ? { adminToken: input.adminToken || null } : {}),
@@ -36,7 +45,7 @@ export async function upsertShopifySettings(input: ShopifySettingsInput) {
       ...(input.defaultAccountId !== undefined ? { defaultAccountId: input.defaultAccountId || null } : {}),
     },
     create: {
-      id: SETTINGS_ID,
+      tenantId: resolvedTenantId,
       storeUrl: input.storeUrl || null,
       adminToken: input.adminToken || null,
       webhookSecret: input.webhookSecret || null,
@@ -153,11 +162,18 @@ export async function importShopifyOrderAsCase(
 
   const rawOrder = JSON.parse(shopifyOrder.rawData) as ShopifyOrderRaw;
   const { items, ...caseFields } = mapOrderToCase(rawOrder);
+  const account = await prisma.dentalAccount.findUnique({
+    where: { id: dentalAccountId },
+    select: { tenantId: true },
+  });
+  if (!account) return null;
+  const accountTenantId = account.tenantId ?? (await resolveFallbackTenantId());
 
   return prisma.$transaction(async (tx) => {
     const newCase = await createCaseWithTx(
       tx,
       {
+        tenantId: accountTenantId,
         ...caseFields,
         ...overrides,
         dentalAccountId,
@@ -220,8 +236,10 @@ export async function handleShopifyOrderWebhook(rawBody: string, hmacHeader: str
   if (!account) return { status: "recorded" as const };
 
   const { items, ...caseFields } = mapOrderToCase(order as unknown as ShopifyOrderRaw);
+  const accountTenantId = account.tenantId ?? (await resolveFallbackTenantId());
   await prisma.$transaction(async (tx) => {
     const newCase = await createCaseWithTx(tx, {
+      tenantId: accountTenantId,
       ...caseFields,
       dentalAccountId: settings.defaultAccountId as string,
       status: "INCOMING",

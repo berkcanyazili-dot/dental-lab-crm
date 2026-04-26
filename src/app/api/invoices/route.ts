@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { allocateInvoiceNumber } from "@/server/services/accounting";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const createInvoiceSchema = z
   .object({
@@ -21,12 +22,17 @@ const createInvoiceSchema = z
   .strict();
 
 export async function GET(req: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(req.url);
   const accountId = searchParams.get("accountId");
   const year = searchParams.get("year");
   const month = searchParams.get("month"); // 0-based
 
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { tenantId: sessionTenant.tenantId };
   if (accountId) where.dentalAccountId = accountId;
   if (year && month !== null) {
     const y = parseInt(year);
@@ -48,6 +54,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const parsed = createInvoiceSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json(
@@ -72,6 +83,7 @@ export async function POST(req: NextRequest) {
     const invoiceNumber = await allocateInvoiceNumber(tx);
     return tx.invoice.create({
       data: {
+        tenantId: sessionTenant.tenantId,
         caseId: data.caseId,
         dentalAccountId: data.dentalAccountId,
         invoiceNumber,

@@ -54,9 +54,10 @@ export async function allocateInvoiceNumber(tx: TransactionClient) {
   return `INV-${String(sequence.value).padStart(6, "0")}`;
 }
 
-export async function buildInvoiceExport(range: DateRange) {
+export async function buildInvoiceExport(tenantId: string, range: DateRange) {
   const invoices = await prisma.invoice.findMany({
     where: {
+      tenantId,
       status: { not: "VOID" },
       ...dateWhere("invoiceDate", range),
     },
@@ -115,9 +116,12 @@ export async function buildInvoiceExport(range: DateRange) {
   };
 }
 
-export async function buildPaymentExport(range: DateRange) {
+export async function buildPaymentExport(tenantId: string, range: DateRange) {
   const payments = await prisma.payment.findMany({
-    where: dateWhere("dateApplied", range),
+    where: {
+      tenantId,
+      ...dateWhere("dateApplied", range),
+    },
     include: {
       invoice: {
         include: {
@@ -171,9 +175,9 @@ export async function buildPaymentExport(range: DateRange) {
   };
 }
 
-export async function buildCustomerExport() {
+export async function buildCustomerExport(tenantId: string) {
   const accounts = await prisma.dentalAccount.findMany({
-    where: { isActive: true },
+    where: { tenantId, isActive: true },
     orderBy: { name: "asc" },
   });
 

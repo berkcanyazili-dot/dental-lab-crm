@@ -519,24 +519,44 @@ export default function CaseDetailPage() {
 
   /* ─── Schedule step update ───────────────────────────────── */
   const updateStep = async (stepId: string, field: string, value: string) => {
-    await fetch(`/api/cases/${id}/schedule`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: stepId, [field]: value }),
-    });
-    await load();
+    try {
+      const response = await fetch(`/api/cases/${id}/schedule`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: stepId, [field]: value }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error ?? "Schedule step could not be updated.");
+      }
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Schedule step could not be updated.");
+    }
   };
 
   /* ─── Generate schedule ──────────────────────────────────── */
   const generateSchedule = async () => {
     setGeneratingSchedule(true);
-    await fetch(`/api/cases/${id}/schedule`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ generate: true }),
-    });
-    await load();
-    setGeneratingSchedule(false);
+    try {
+      const response = await fetch(`/api/cases/${id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generate: true }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error ?? "Schedule could not be generated.");
+      }
+
+      await load();
+      toast.success("Schedule generated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Schedule could not be generated.");
+    } finally {
+      setGeneratingSchedule(false);
+    }
   };
 
   /* ─── Add note ───────────────────────────────────────────── */

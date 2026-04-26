@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getTenantPrisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
@@ -30,15 +31,45 @@ const patchScheduleSchema = z
   })
   .strict();
 
+function buildCaseLookupWhere(rawId: string, tenantId: string): Prisma.CaseWhereInput {
+  const normalized = rawId.trim();
+
+  return {
+    tenantId,
+    deletedAt: null,
+    OR: [
+      { id: normalized },
+      { caseNumber: normalized },
+      { caseNumber: normalized.toUpperCase() },
+    ],
+  };
+}
+
+async function resolveCaseId(
+  rawId: string,
+  tenantId: string,
+  prisma: ReturnType<typeof getTenantPrisma>
+) {
+  return prisma.case.findFirst({
+    where: buildCaseLookupWhere(rawId, tenantId),
+    select: { id: true },
+  });
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const sessionTenant = await getSessionTenant();
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const prisma = getTenantPrisma(sessionTenant.tenantId);
+  const existingCase = await resolveCaseId(params.id, sessionTenant.tenantId, prisma);
+
+  if (!existingCase) {
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  }
 
   const steps = await prisma.deptSchedule.findMany({
-    where: { caseId: params.id, case: { tenantId: sessionTenant.tenantId, deletedAt: null } },
+    where: { caseId: existingCase.id, case: { tenantId: sessionTenant.tenantId, deletedAt: null } },
     include: { technician: true },
     orderBy: { sortOrder: "asc" },
   });
@@ -51,19 +82,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const prisma = getTenantPrisma(sessionTenant.tenantId);
+  const existingCase = await resolveCaseId(params.id, sessionTenant.tenantId, prisma);
+
+  if (!existingCase) {
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  }
 
   const body = await req.json();
   const authorName = await getSessionAuthorName();
+
   if (body.generate) {
     await prisma.deptSchedule.deleteMany({
-      where: { caseId: params.id, case: { tenantId: sessionTenant.tenantId, deletedAt: null } },
+      where: { caseId: existingCase.id, case: { tenantId: sessionTenant.tenantId, deletedAt: null } },
     });
+
     const templates = await getActiveWorkflowTemplates(prisma, sessionTenant.tenantId);
     const steps = await Promise.all(
       templates.map((template) =>
         prisma.deptSchedule.create({
           data: {
-            caseId: params.id,
+            caseId: existingCase.id,
             department: template.department,
             sortOrder: template.sortOrder,
             status: "SCHEDULED",
@@ -72,9 +110,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         })
       )
     );
+
     await prisma.caseAudit.create({
-      data: { caseId: params.id, action: "SCHEDULE_GENERATED", details: `Generated ${steps.length} department steps`, authorName },
+      data: {
+        caseId: existingCase.id,
+        action: "SCHEDULE_GENERATED",
+        details: `Generated ${steps.length} department steps`,
+        authorName,
+      },
     });
+
     return NextResponse.json(steps, { status: 201 });
   }
 
@@ -87,7 +132,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const step = await prisma.deptSchedule.create({
-    data: { caseId: params.id, ...parsed.data },
+    data: { caseId: existingCase.id, ...parsed.data },
     include: { technician: true },
   });
   return NextResponse.json(step, { status: 201 });
@@ -99,6 +144,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const prisma = getTenantPrisma(sessionTenant.tenantId);
+  const existingCase = await resolveCaseId(params.id, sessionTenant.tenantId, prisma);
+
+  if (!existingCase) {
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  }
 
   const parsed = patchScheduleSchema.safeParse(await req.json());
   if (!parsed.success) {
@@ -115,13 +165,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     data,
     include: { technician: true },
   });
+
   await prisma.caseAudit.create({
     data: {
-      caseId: params.id,
+      caseId: existingCase.id,
       action: "SCHEDULE_UPDATED",
-      details: `${step.department} → ${step.status}`,
+      details: `${step.department} -> ${step.status}`,
       authorName,
     },
   });
+
   return NextResponse.json(step);
 }

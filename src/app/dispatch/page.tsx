@@ -6,6 +6,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   Loader2,
   MapPin,
   PackageCheck,
@@ -75,6 +76,86 @@ function accountAddress(caseItem: DispatchCase) {
     .join(", ");
 }
 
+function isDueToday(value: string | null) {
+  if (!value) return false;
+  const date = new Date(value);
+  const today = new Date();
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
+}
+
+function buildDriverStops(cases: DispatchCase[]) {
+  return cases
+    .map((caseItem) => ({
+      caseId: caseItem.id,
+      caseNumber: caseItem.caseNumber,
+      patientName: caseItem.patientName,
+      accountName: caseItem.dentalAccount.name,
+      address: accountAddress(caseItem),
+      deliveryDate: caseItem.deliveryDate,
+      dueDate: caseItem.dueDate,
+      shippingTime: caseItem.shippingTime,
+      logisticsStatus: caseItem.logisticsStatus,
+    }))
+    .filter((stop) => stop.address)
+    .sort((a, b) => {
+      const aDate = a.deliveryDate ?? a.dueDate ?? "";
+      const bDate = b.deliveryDate ?? b.dueDate ?? "";
+      return aDate.localeCompare(bDate) || a.accountName.localeCompare(b.accountName);
+    });
+}
+
+function googleMapsDirectionsUrl(addresses: string[]) {
+  if (addresses.length === 0) return null;
+  if (addresses.length === 1) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addresses[0])}`;
+  }
+
+  const origin = addresses[0];
+  const destination = addresses[addresses.length - 1];
+  const waypoints = addresses.slice(1, -1);
+  const params = new URLSearchParams({
+    api: "1",
+    travelmode: "driving",
+    origin,
+    destination,
+  });
+  if (waypoints.length > 0) {
+    params.set("waypoints", waypoints.join("|"));
+  }
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function googleMapsEmbedUrl(addresses: string[]) {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey || addresses.length === 0) return null;
+
+  if (addresses.length === 1) {
+    const params = new URLSearchParams({
+      key: apiKey,
+      q: addresses[0],
+    });
+    return `https://www.google.com/maps/embed/v1/place?${params.toString()}`;
+  }
+
+  const origin = addresses[0];
+  const destination = addresses[addresses.length - 1];
+  const waypoints = addresses.slice(1, -1);
+  const params = new URLSearchParams({
+    key: apiKey,
+    origin,
+    destination,
+    mode: "driving",
+  });
+  if (waypoints.length > 0) {
+    params.set("waypoints", waypoints.join("|"));
+  }
+  return `https://www.google.com/maps/embed/v1/directions?${params.toString()}`;
+}
+
 export default function DispatchPage() {
   const [cases, setCases] = useState<DispatchCase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,6 +195,27 @@ export default function DispatchPage() {
       return acc;
     }, {});
   }, [filteredCases]);
+
+  const localDueTodayStops = useMemo(() => {
+    return buildDriverStops(
+      filteredCases.filter(
+        (caseItem) =>
+          caseItem.route === "LOCAL" &&
+          isDueToday(caseItem.dueDate) &&
+          caseItem.logisticsStatus !== "DELIVERED"
+      )
+    );
+  }, [filteredCases]);
+
+  const localTodayMapUrl = useMemo(
+    () => googleMapsEmbedUrl(localDueTodayStops.map((stop) => stop.address)),
+    [localDueTodayStops]
+  );
+
+  const localTodayDirectionsUrl = useMemo(
+    () => googleMapsDirectionsUrl(localDueTodayStops.map((stop) => stop.address)),
+    [localDueTodayStops]
+  );
 
   async function updateDispatch(caseId: string, patch: Partial<DispatchCase> & { logisticsStatus?: string }) {
     setSavingId(caseId);
@@ -184,6 +286,107 @@ export default function DispatchPage() {
         <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Delivered</p>
           <p className="mt-2 text-3xl font-bold text-emerald-300">{grouped.DELIVERED?.length ?? 0}</p>
+        </div>
+      </section>
+
+      <section className="mb-5 rounded-xl border border-gray-800 bg-gray-950">
+        <div className="flex flex-col gap-3 border-b border-gray-800 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Driver Routing View</h2>
+            <p className="mt-1 text-sm text-gray-400">
+              Today&apos;s local deliveries plotted for the driver. Uses Google Maps when a browser API key is configured.
+            </p>
+          </div>
+          {localTodayDirectionsUrl ? (
+            <a
+              href={localTodayDirectionsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-500"
+            >
+              <Truck className="h-4 w-4" />
+              Open Route in Google Maps
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4 p-4 xl:grid-cols-[1.5fr_1fr]">
+          <div className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900">
+            {localTodayMapUrl ? (
+              <iframe
+                title="Today's delivery route"
+                src={localTodayMapUrl}
+                className="h-[420px] w-full"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            ) : (
+              <div className="flex h-[420px] flex-col items-center justify-center gap-3 px-6 text-center text-sm text-gray-400">
+                <MapPin className="h-8 w-8 text-sky-400" />
+                {localDueTodayStops.length === 0 ? (
+                  <p>No LOCAL cases due today are ready for routing.</p>
+                ) : (
+                  <>
+                    <p>Map preview needs `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to render inside the CRM.</p>
+                    {localTodayDirectionsUrl ? (
+                      <a
+                        href={localTodayDirectionsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 text-white hover:border-sky-500"
+                      >
+                        Open the route externally
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-gray-800 bg-gray-900">
+            <div className="border-b border-gray-800 px-4 py-3">
+              <h3 className="text-sm font-semibold text-white">Today&apos;s Local Stops</h3>
+              <p className="mt-1 text-xs text-gray-500">{localDueTodayStops.length} stop(s)</p>
+            </div>
+            <div className="max-h-[420px] space-y-3 overflow-y-auto p-3">
+              {localDueTodayStops.length === 0 ? (
+                <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-gray-800 text-center text-sm text-gray-500">
+                  <Truck className="mb-2 h-5 w-5" />
+                  No local deliveries due today
+                </div>
+              ) : (
+                localDueTodayStops.map((stop, index) => (
+                  <Link
+                    key={`${stop.caseId}-${stop.address}`}
+                    href={`/cases/${stop.caseId}`}
+                    className="block rounded-lg border border-gray-800 bg-gray-950 p-3 transition-colors hover:border-sky-700 hover:bg-gray-900"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-600/20 text-xs font-bold text-sky-300">
+                          {index + 1}
+                        </span>
+                        <span className="font-semibold text-white">{stop.caseNumber}</span>
+                      </div>
+                      <span className="rounded-full bg-gray-800 px-2 py-0.5 text-[11px] text-gray-300">
+                        {stop.logisticsStatus.replaceAll("_", " ")}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-200">{stop.accountName}</p>
+                    <p className="text-xs text-gray-500">{stop.patientName}</p>
+                    <p className="mt-2 line-clamp-3 text-xs text-gray-400">{stop.address}</p>
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
+                      <span>Due {formatDate(stop.dueDate)}</span>
+                      <span>{stop.shippingTime || "Any time"}</span>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </section>
 

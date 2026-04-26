@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { CaseRoute, CaseStatus, LogisticsStatus } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getSessionAuthorName } from "@/server/services/authorship";
+import { getSessionTenant } from "@/server/services/tenant";
 
 const updateDispatchSchema = z
   .object({
@@ -31,9 +33,15 @@ const visibleLogisticsStatuses: LogisticsStatus[] = [
 ];
 
 export async function GET(request: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const route = searchParams.get("route");
   const status = searchParams.get("status");
+  const due = searchParams.get("due");
 
   const routeFilter =
     route && ["LOCAL", "SHIP", "PICKUP"].includes(route)
@@ -44,9 +52,24 @@ export async function GET(request: NextRequest) {
       ? (status as LogisticsStatus)
       : undefined;
 
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(startOfToday);
+  endOfToday.setDate(endOfToday.getDate() + 1);
+
   const cases = await prisma.case.findMany({
     where: {
+      tenantId: sessionTenant.tenantId,
+      deletedAt: null,
       ...(routeFilter ? { route: routeFilter } : {}),
+      ...(due === "today"
+        ? {
+            dueDate: {
+              gte: startOfToday,
+              lt: endOfToday,
+            },
+          }
+        : {}),
       ...(logisticsStatusFilter
         ? { logisticsStatus: logisticsStatusFilter }
         : {
@@ -60,7 +83,7 @@ export async function GET(request: NextRequest) {
     include: {
       dentalAccount: true,
       technician: true,
-      items: true,
+      items: { where: { deletedAt: null } },
     },
     orderBy: [
       { logisticsStatus: "asc" },
@@ -74,6 +97,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const sessionTenant = await getSessionTenant();
+  if (!sessionTenant) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const body = await request.json();
   const parsed = updateDispatchSchema.safeParse(body);
   if (!parsed.success) {
@@ -84,9 +112,11 @@ export async function PATCH(request: NextRequest) {
   }
 
   const { caseId, _authorName, logisticsStatus, ...updates } = parsed.data;
-  const authorName = _authorName ?? "Staff";
+  const authorName = _authorName ?? await getSessionAuthorName();
 
-  const existing = await prisma.case.findUnique({ where: { id: caseId } });
+  const existing = await prisma.case.findFirst({
+    where: { id: caseId, tenantId: sessionTenant.tenantId, deletedAt: null },
+  });
   if (!existing) {
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
   }

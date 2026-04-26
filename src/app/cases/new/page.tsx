@@ -24,6 +24,7 @@ import {
   UserRound,
 } from "lucide-react";
 import ToothDiagram from "@/components/ui/ToothDiagram";
+import { parseLabInboxArchive, type ImportedInboxAttachment } from "@/lib/inboxImport";
 
 interface DentalAccount {
   id: string;
@@ -95,7 +96,13 @@ const ACCEPTED_ATTACHMENT_TYPES = {
   "application/sla": [".stl"],
   "application/octet-stream": [".stl"],
 };
+const ACCEPTED_INBOX_ARCHIVE_TYPES = {
+  "application/zip": [".zip"],
+  "application/x-zip-compressed": [".zip"],
+  "application/octet-stream": [".zip"],
+};
 const MAX_ATTACHMENT_SIZE_BYTES = 50 * 1024 * 1024;
+const MAX_INBOX_ARCHIVE_SIZE_BYTES = 100 * 1024 * 1024;
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-300">{children}</label>;
@@ -259,6 +266,9 @@ export default function NewCasePage() {
 
   const [caseItems, setCaseItems] = useState<CaseItemRow[]>([]);
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  const [importingInbox, setImportingInbox] = useState(false);
+  const [importedInboxLabel, setImportedInboxLabel] = useState("");
+  const [importedInboxSummary, setImportedInboxSummary] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -352,21 +362,94 @@ export default function NewCasePage() {
     Boolean(dentalAccountId) && Boolean(patientFirst.trim()) && Boolean(patientLast.trim());
   const canMoveRxStep = caseItems.length > 0;
 
+  function appendDraftAttachments(nextAttachments: ImportedInboxAttachment[]) {
+    setDraftAttachments((current) => {
+      const existingKeys = new Set(current.map((attachment) => `${attachment.file.name}:${attachment.file.size}`));
+      const incoming = nextAttachments
+        .filter((attachment) => !existingKeys.has(`${attachment.file.name}:${attachment.file.size}`))
+        .map((attachment) => ({
+          id: `${attachment.file.name}-${attachment.file.size}-${Math.random()}`,
+          file: attachment.file,
+          fileType: attachment.fileType,
+        }));
+      return [...current, ...incoming];
+    });
+  }
+
   const onAttachmentDrop = useCallback((acceptedFiles: File[]) => {
-    setDraftAttachments((current) => [
-      ...current,
-      ...acceptedFiles.map((file) => ({
-        id: `${file.name}-${file.size}-${Math.random()}`,
+    appendDraftAttachments(
+      acceptedFiles.map((file) => ({
         file,
         fileType: inferClientAttachmentType(file),
-      })),
-    ]);
+      }))
+    );
   }, []);
+
+  const onInboxArchiveDrop = useCallback(async (acceptedFiles: File[]) => {
+    const archive = acceptedFiles[0];
+    if (!archive) return;
+
+    setImportingInbox(true);
+    setError("");
+
+    try {
+      const imported = await parseLabInboxArchive(archive);
+
+      if (imported.patientFirst) setPatientFirst(imported.patientFirst);
+      if (imported.patientLast) setPatientLast(imported.patientLast);
+      if (imported.toothNumbers.length > 0 && caseItems.length === 0) {
+        setCaseItems([
+          {
+            ...makeItem("Imported Digital Rx", "Imported"),
+            selectedTeeth: imported.toothNumbers,
+          },
+        ]);
+      }
+
+      if (imported.metadataSummary.length > 0) {
+        setInternalNotes((current) => {
+          const prefix = `Imported from ${archive.name}`;
+          const summary = `Metadata files: ${imported.metadataSummary.join(", ")}`;
+          const nextBlock = [prefix, summary].join("\n");
+          return current.includes(nextBlock) ? current : [current.trim(), nextBlock].filter(Boolean).join("\n\n");
+        });
+      }
+
+      appendDraftAttachments(imported.attachments);
+      setImportedInboxLabel(imported.sourceLabel);
+      setImportedInboxSummary([
+        imported.patientName ? `Patient: ${imported.patientName}` : "Patient: not detected",
+        imported.toothNumbers.length > 0
+          ? `Teeth: ${imported.toothNumbers.join(", ")}`
+          : "Teeth: not detected",
+        imported.attachments.length > 0
+          ? `Files staged: ${imported.attachments.length}`
+          : "Files staged: 0",
+      ]);
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : "Failed to parse lab archive.");
+    } finally {
+      setImportingInbox(false);
+    }
+  }, [caseItems.length]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: ACCEPTED_ATTACHMENT_TYPES,
     maxSize: MAX_ATTACHMENT_SIZE_BYTES,
     onDrop: onAttachmentDrop,
+  });
+
+  const {
+    getRootProps: getInboxRootProps,
+    getInputProps: getInboxInputProps,
+    isDragActive: isInboxDragActive,
+  } = useDropzone({
+    accept: ACCEPTED_INBOX_ARCHIVE_TYPES,
+    maxFiles: 1,
+    maxSize: MAX_INBOX_ARCHIVE_SIZE_BYTES,
+    onDrop: (files) => {
+      void onInboxArchiveDrop(files);
+    },
   });
 
   function selectAccount(account: DentalAccount) {
@@ -659,6 +742,51 @@ export default function NewCasePage() {
                       <div className="text-slate-400">
                         {selectedAccount.doctorName ? `Dr. ${selectedAccount.doctorName}` : "No doctor listed"}
                       </div>
+                    </div>
+                  ) : null}
+                </Panel>
+
+                <Panel
+                  title="Digital Inbox Import"
+                  description="Drop an iTero, 3Shape, or other lab archive here and we'll prefill what we can instead of retyping it."
+                >
+                  <div
+                    {...getInboxRootProps()}
+                    className={`flex min-h-[170px] cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-8 text-center transition ${
+                      isInboxDragActive
+                        ? "border-sky-400 bg-sky-950/40"
+                        : "border-slate-700 bg-slate-950/70 hover:border-slate-500"
+                    }`}
+                  >
+                    <input {...getInboxInputProps()} />
+                    {importingInbox ? (
+                      <Loader2 className="mb-3 h-8 w-8 animate-spin text-sky-300" />
+                    ) : (
+                      <UploadCloud className="mb-3 h-8 w-8 text-sky-300" />
+                    )}
+                    <p className="text-sm font-semibold text-white">
+                      {importingInbox
+                        ? "Reading archive..."
+                        : isInboxDragActive
+                          ? "Drop the archive here"
+                          : "Drag a vendor ZIP here or click to browse"}
+                    </p>
+                    <p className="mt-2 max-w-2xl text-xs text-slate-500">
+                      We look for patient metadata, tooth numbers, and embedded STL/PDF/image files, then stage them into this case draft.
+                    </p>
+                  </div>
+
+                  {importedInboxLabel ? (
+                    <div className="mt-4 rounded-xl border border-emerald-800 bg-emerald-950/30 p-4">
+                      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-100">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Imported from {importedInboxLabel}
+                      </div>
+                      <ul className="space-y-1 text-xs text-emerald-200/90">
+                        {importedInboxSummary.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
                     </div>
                   ) : null}
                 </Panel>
@@ -1132,6 +1260,7 @@ export default function NewCasePage() {
                 <div className="flex justify-between"><span className="text-slate-500">Units</span><span>{totalUnits}</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Mapped Teeth</span><span>{totalTeeth}</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Attachments</span><span>{draftAttachments.length}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Inbox Import</span><span>{importedInboxLabel || "None"}</span></div>
                 <div className="flex justify-between border-t border-slate-800 pt-3 font-semibold text-white">
                   <span>Estimated Total</span>
                   <span>${totalValue.toFixed(2)}</span>

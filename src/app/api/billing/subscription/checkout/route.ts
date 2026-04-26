@@ -22,9 +22,19 @@ export async function GET() {
     return NextResponse.json({ error: "Only lab admins can manage subscriptions." }, { status: 403 });
   }
 
-  const priceId = process.env.STRIPE_SUBSCRIPTION_PRICE_ID;
-  if (!priceId) {
-    return NextResponse.json({ error: "STRIPE_SUBSCRIPTION_PRICE_ID is not configured." }, { status: 500 });
+  const basePriceId =
+    process.env.STRIPE_SUBSCRIPTION_BASE_PRICE_ID ||
+    process.env.STRIPE_SUBSCRIPTION_PRICE_ID;
+  const meteredStoragePriceId = process.env.STRIPE_STORAGE_METERED_PRICE_ID;
+
+  if (!basePriceId) {
+    return NextResponse.json(
+      {
+        error:
+          "STRIPE_SUBSCRIPTION_BASE_PRICE_ID or STRIPE_SUBSCRIPTION_PRICE_ID must be configured.",
+      },
+      { status: 500 }
+    );
   }
 
   const tenant = await prisma.tenant.findUnique({
@@ -70,16 +80,21 @@ export async function GET() {
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [
+      { price: basePriceId, quantity: 1 },
+      ...(meteredStoragePriceId ? [{ price: meteredStoragePriceId }] : []),
+    ],
     allow_promotion_codes: true,
     success_url: `${appUrl}/billing/upgrade?success=1`,
     cancel_url: `${appUrl}/billing/upgrade?canceled=1`,
     metadata: {
       tenantId: tenant.id,
+      storageMeteredPriceEnabled: meteredStoragePriceId ? "true" : "false",
     },
     subscription_data: {
       metadata: {
         tenantId: tenant.id,
+        storageMeteredPriceEnabled: meteredStoragePriceId ? "true" : "false",
       },
     },
   });

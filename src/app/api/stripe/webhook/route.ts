@@ -3,6 +3,7 @@ import { Prisma, StripeWebhookEventStatus } from "@prisma/client";
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
+import { reportTenantStorageUsageToStripe } from "@/server/services/storageBilling";
 
 function centsToDecimal(amount: number) {
   return new Prisma.Decimal(amount).dividedBy(100);
@@ -122,6 +123,15 @@ async function syncTenantSubscription(
           : null,
     },
   });
+
+  try {
+    await reportTenantStorageUsageToStripe(tenant.id, {
+      reason: "subscription_sync",
+      sourceKey: subscription.id,
+    });
+  } catch (error) {
+    console.error("Failed to report tenant storage usage during subscription sync", error);
+  }
 }
 
 async function clearTenantSubscription(subscription: Stripe.Subscription) {

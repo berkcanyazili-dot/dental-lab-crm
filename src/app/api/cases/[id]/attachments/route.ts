@@ -4,12 +4,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { inferAttachmentType } from "@/server/services/attachments";
+import { reportTenantStorageUsageToStripe } from "@/server/services/storageBilling";
 
 const createAttachmentSchema = z
   .object({
     fileName: z.string().trim().min(1),
     fileUrl: z.string().trim().url(),
     fileType: z.enum(["stl", "pdf", "image", "other"]).optional(),
+    byteSize: z.number().int().min(0).optional(),
   })
   .strict();
 
@@ -27,7 +29,7 @@ function buildCaseLookupWhere(rawId: string): Prisma.CaseWhereInput {
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const existingCase = await prisma.case.findFirst({
-    where: buildCaseLookupWhere(params.id),
+    where: { ...buildCaseLookupWhere(params.id), deletedAt: null },
     select: { id: true },
   });
 
@@ -36,7 +38,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 
   const attachments = await prisma.attachment.findMany({
-    where: { caseId: existingCase.id },
+    where: { caseId: existingCase.id, deletedAt: null },
     orderBy: { createdAt: "desc" },
   });
 
@@ -53,8 +55,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const existingCase = await prisma.case.findFirst({
-    where: buildCaseLookupWhere(params.id),
-    select: { id: true, caseNumber: true },
+    where: { ...buildCaseLookupWhere(params.id), deletedAt: null },
+    select: { id: true, caseNumber: true, tenantId: true },
   });
 
   if (!existingCase) {
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const authorName = await getSessionAuthorName();
-  const { fileName, fileUrl } = parsed.data;
+  const { fileName, fileUrl, byteSize } = parsed.data;
   const fileType = parsed.data.fileType ?? inferAttachmentType(fileName);
 
   const attachment = await prisma.attachment.create({
@@ -71,6 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       fileName,
       fileUrl,
       fileType,
+      byteSize: byteSize ?? null,
       uploadedBy: authorName,
     },
   });
@@ -83,6 +86,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       authorName,
     },
   });
+
+  if (existingCase.tenantId) {
+    try {
+      await reportTenantStorageUsageToStripe(existingCase.tenantId, {
+        reason: "attachment_create",
+        sourceKey: attachment.id,
+      });
+    } catch (error) {
+      console.error("Failed to report tenant storage usage for manual attachment", error);
+    }
+  }
 
   return NextResponse.json(attachment, { status: 201 });
 }

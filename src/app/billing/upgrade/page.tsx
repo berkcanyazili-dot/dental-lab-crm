@@ -44,6 +44,9 @@ export default async function BillingUpgradePage({
               <p className="mt-2 text-sm text-gray-300">
                 Your tenant needs an active subscription before users can continue using the CRM and upload storage.
               </p>
+              <p className="mt-2 text-sm text-gray-400">
+                Plans can include a base storage allowance with metered overage billing for large STL and scan libraries.
+              </p>
               {tenant?.name && (
                 <p className="mt-2 text-sm text-sky-300">
                   Tenant: {tenant.name}
@@ -100,7 +103,8 @@ export default async function BillingUpgradePage({
           ) : canManageBilling ? (
             <div>
               <p className="mb-4 text-sm text-gray-300">
-                Start the Stripe subscription checkout to unlock the tenant.
+                Start the Stripe subscription checkout to unlock the tenant. You can combine a base monthly fee with
+                metered storage overage for larger labs.
               </p>
               <a
                 href="/api/billing/subscription/checkout"

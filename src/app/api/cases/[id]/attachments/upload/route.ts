@@ -1,9 +1,11 @@
+import { head } from "@vercel/blob";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
+import { reportTenantStorageUsageToStripe } from "@/server/services/storageBilling";
 import {
   ALLOWED_ATTACHMENT_CONTENT_TYPES,
   inferAttachmentType,
@@ -63,7 +65,7 @@ export async function POST(
       onBeforeGenerateToken: async (_pathname, clientPayload) => {
         const existingCase = await prisma.case.findFirst({
           where: buildCaseLookupWhere(params.id),
-          select: { id: true, caseNumber: true },
+          select: { id: true, caseNumber: true, tenantId: true },
         });
 
         if (!existingCase) {
@@ -104,12 +106,20 @@ export async function POST(
 
         const { caseId, fileName, fileType, authorName } = parsedTokenPayload.data;
 
-        await prisma.attachment.create({
+        const caseRecord = await prisma.case.findUnique({
+          where: { id: caseId },
+          select: { tenantId: true },
+        });
+
+        const blobMetadata = await head(blob.url);
+
+        const attachment = await prisma.attachment.create({
           data: {
             caseId,
             fileName,
             fileUrl: blob.url,
             fileType,
+            byteSize: blobMetadata.size,
             uploadedBy: authorName,
           },
         });
@@ -122,6 +132,17 @@ export async function POST(
             authorName,
           },
         });
+
+        if (caseRecord?.tenantId) {
+          try {
+            await reportTenantStorageUsageToStripe(caseRecord.tenantId, {
+              reason: "attachment_upload",
+              sourceKey: attachment.id,
+            });
+          } catch (error) {
+            console.error("Failed to report tenant storage usage after upload", error);
+          }
+        }
       },
     });
 

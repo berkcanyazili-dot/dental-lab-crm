@@ -396,6 +396,7 @@ model Attachment {
   fileName    String
   fileUrl     String
   fileType    String
+  byteSize    Int?
   uploadedBy  String
   deletedAt   DateTime?
   createdAt   DateTime @default(now())

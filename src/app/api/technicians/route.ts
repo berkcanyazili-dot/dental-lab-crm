@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getSessionTenant } from "@/server/services/tenant";
 
 export async function GET() {
@@ -8,9 +8,10 @@ export async function GET() {
     if (!sessionTenant) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const prisma = getTenantPrisma(sessionTenant.tenantId);
 
     const techs = await prisma.technician.findMany({
-      where: { tenantId: sessionTenant.tenantId },
+      where: { deletedAt: null },
       orderBy: { name: "asc" },
       include: { _count: { select: { cases: true } } },
     });
@@ -26,10 +27,11 @@ export async function POST(request: NextRequest) {
     if (!sessionTenant) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const prisma = getTenantPrisma(sessionTenant.tenantId);
 
     const body = await request.json();
     const tech = await prisma.technician.create({
-      data: { ...body, tenantId: sessionTenant.tenantId },
+      data: body,
     });
     return NextResponse.json(tech, { status: 201 });
   } catch {

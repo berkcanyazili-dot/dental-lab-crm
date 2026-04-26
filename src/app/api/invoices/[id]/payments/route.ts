@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getSessionTenant } from "@/server/services/tenant";
 
 const paymentSchema = z
@@ -29,9 +29,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const payments = await prisma.payment.findMany({
-    where: { tenantId: sessionTenant.tenantId, invoiceId: params.id },
+    where: { invoiceId: params.id },
     orderBy: { dateApplied: "asc" },
   });
   return NextResponse.json(payments);
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const parsed = paymentSchema.safeParse(await req.json());
   if (!parsed.success) {
@@ -79,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     const paymentTotals = await tx.payment.aggregate({
-      where: { tenantId: sessionTenant.tenantId, invoiceId: params.id },
+      where: { invoiceId: params.id },
       _sum: { amount: true },
     });
     const totalPaid = paymentTotals._sum.amount ?? new Prisma.Decimal(0);

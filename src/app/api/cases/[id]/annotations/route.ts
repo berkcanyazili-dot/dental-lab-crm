@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { getSessionTenant } from "@/server/services/tenant";
 
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const parsed = createAnnotationSchema.safeParse(await request.json());
   if (!parsed.success) {

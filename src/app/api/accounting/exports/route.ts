@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AccountingExportType } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import {
   buildCustomerExport,
   buildInvoiceExport,
@@ -37,6 +37,7 @@ export async function GET() {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const exports = await prisma.accountingExport.findMany({
     orderBy: { createdAt: "desc" },

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CaseRoute, CaseStatus, LogisticsStatus } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { getSessionTenant } from "@/server/services/tenant";
 
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const { searchParams } = new URL(request.url);
   const route = searchParams.get("route");
@@ -59,7 +60,6 @@ export async function GET(request: NextRequest) {
 
   const cases = await prisma.case.findMany({
     where: {
-      tenantId: sessionTenant.tenantId,
       deletedAt: null,
       ...(routeFilter ? { route: routeFilter } : {}),
       ...(due === "today"
@@ -101,6 +101,7 @@ export async function PATCH(request: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const body = await request.json();
   const parsed = updateDispatchSchema.safeParse(body);
@@ -115,7 +116,7 @@ export async function PATCH(request: NextRequest) {
   const authorName = _authorName ?? await getSessionAuthorName();
 
   const existing = await prisma.case.findFirst({
-    where: { id: caseId, tenantId: sessionTenant.tenantId, deletedAt: null },
+    where: { id: caseId, deletedAt: null },
   });
   if (!existing) {
     return NextResponse.json({ error: "Case not found" }, { status: 404 });

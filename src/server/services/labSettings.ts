@@ -1,10 +1,5 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-
-type ClientLike = Omit<
-  PrismaClient,
-  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
->;
 
 const DEFAULT_PRODUCTS = [
   ["Fixed", "Crown", 250],
@@ -82,11 +77,22 @@ export async function getLabSettingsBundle(tenantId: string) {
   return { settings, products, workflow };
 }
 
-export async function getActiveWorkflowTemplates(client: ClientLike = prisma, tenantId: string) {
+export async function getActiveWorkflowTemplates(
+  client: unknown = prisma,
+  tenantId: string
+) {
   if (client === prisma) {
     await ensureLabDefaults(tenantId);
   }
-  return client.workflowStepTemplate.findMany({
+  const workflowClient = client as {
+    workflowStepTemplate: {
+      findMany: (args: {
+        where: { tenantId: string; isActive: true };
+        orderBy: Array<{ sortOrder: "asc" } | { department: "asc" }>;
+      }) => Promise<Array<{ department: string; sortOrder: number; leadDays: number; isActive: boolean }>>;
+    };
+  };
+  return workflowClient.workflowStepTemplate.findMany({
     where: { tenantId, isActive: true },
     orderBy: [{ sortOrder: "asc" }, { department: "asc" }],
   });

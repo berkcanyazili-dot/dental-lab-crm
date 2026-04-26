@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { createCase } from "@/server/services/cases";
 import { getDoctorSession } from "@/server/services/portal";
 
@@ -41,9 +41,10 @@ export async function GET() {
   if (!doctor) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(doctor.tenantId);
 
   const cases = await prisma.case.findMany({
-    where: { tenantId: doctor.tenantId, dentalAccountId: doctor.dentalAccountId },
+    where: { dentalAccountId: doctor.dentalAccountId },
     select: {
       id: true,
       caseNumber: true,
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
   if (!doctor) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(doctor.tenantId);
 
   const body = await request.json();
   const parsed = portalCreateCaseSchema.safeParse(body);
@@ -110,6 +112,14 @@ export async function POST(request: NextRequest) {
   }
 
   const order = parsed.data;
+  const account = await prisma.dentalAccount.findFirst({
+    where: { id: doctor.dentalAccountId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!account) {
+    return NextResponse.json({ error: "Doctor account not found" }, { status: 404 });
+  }
+
   const newCase = await createCase(
     {
       tenantId: doctor.tenantId,

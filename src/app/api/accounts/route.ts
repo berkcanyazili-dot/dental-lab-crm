@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getSessionTenant } from "@/server/services/tenant";
 
 const createAccountSchema = z
@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const prisma = getTenantPrisma(sessionTenant.tenantId);
     const rawSearch = searchParams.get("search")?.trim() ?? "";
     const search = rawSearch.slice(0, 100);
     const parsedLimit = Number(searchParams.get("limit"));
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
     const accounts = await prisma.dentalAccount.findMany({
       where: search
         ? {
-            tenantId: sessionTenant.tenantId,
+            deletedAt: null,
             OR: [
               { name: { contains: search, mode: "insensitive" } },
               { doctorName: { contains: search, mode: "insensitive" } },
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
               { phone: { contains: search, mode: "insensitive" } },
             ],
           }
-        : { tenantId: sessionTenant.tenantId },
+        : { deletedAt: null },
       orderBy: { name: "asc" },
       take: limit,
       include: { _count: { select: { cases: true } } },
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const parsed = createAccountSchema.safeParse(await request.json());
   if (!parsed.success) {
@@ -78,7 +80,6 @@ export async function POST(request: NextRequest) {
   try {
     const account = await prisma.dentalAccount.create({
       data: {
-        tenantId: sessionTenant.tenantId,
         ...parsed.data,
       },
     });

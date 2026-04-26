@@ -1,10 +1,18 @@
-import { AccountingExportType, Prisma, type PrismaClient } from "@prisma/client";
+import { AccountingExportType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
-type TransactionClient = Omit<
-  PrismaClient,
-  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
->;
+type TransactionClient = {
+  invoice: {
+    count: () => Promise<number>;
+  };
+  numberSequence: {
+    upsert: (args: {
+      where: { name: string };
+      update: { value: { increment: number } };
+      create: { name: string; value: number };
+    }) => Promise<{ value: number }>;
+  };
+};
 
 export interface DateRange {
   startDate?: Date;

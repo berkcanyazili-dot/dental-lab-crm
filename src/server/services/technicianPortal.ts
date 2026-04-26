@@ -5,15 +5,16 @@ export interface TechnicianSession {
   name?: string | null;
   email?: string | null;
   technicianId: string;
+  tenantId: string;
 }
 
 export async function getTechnicianSession(): Promise<TechnicianSession | null> {
   const session = await getServerSession(authOptions);
   const user = session?.user as
-    | { name?: string | null; email?: string | null; role?: string; technicianId?: string | null }
+    | { name?: string | null; email?: string | null; role?: string; technicianId?: string | null; tenantId?: string | null }
     | undefined;
 
-  if (!user || user.role !== "TECHNICIAN" || !user.technicianId) {
+  if (!user || user.role !== "TECHNICIAN" || !user.technicianId || !user.tenantId) {
     return null;
   }
 
@@ -21,5 +22,6 @@ export async function getTechnicianSession(): Promise<TechnicianSession | null> 
     name: user.name,
     email: user.email,
     technicianId: user.technicianId,
+    tenantId: user.tenantId,
   };
 }

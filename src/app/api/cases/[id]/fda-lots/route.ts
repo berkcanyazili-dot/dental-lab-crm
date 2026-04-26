@@ -36,7 +36,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 
   const lots = await prisma.fDALot.findMany({
-    where: { caseId: existingCase.id },
+    where: { caseId: existingCase.id, deletedAt: null },
     include: {
       caseItem: {
         select: {
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       where: {
         id: caseItemId,
         caseId: existingCase.id,
+        deletedAt: null,
       },
       select: { id: true },
     });
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const maxOrder = await prisma.fDALot.aggregate({
-    where: { caseId: existingCase.id },
+    where: { caseId: existingCase.id, deletedAt: null },
     _max: { sortOrder: true },
   });
   const sortOrder = (maxOrder._max.sortOrder ?? -1) + 1;

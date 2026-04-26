@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CaseStatus } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getTechnicianSession } from "@/server/services/technicianPortal";
 
 const actionSchema = z
@@ -22,6 +22,7 @@ export async function GET() {
   if (!techSession) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(techSession.tenantId);
 
   const technician = await prisma.technician.findUnique({
     where: { id: techSession.technicianId },
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
   if (!techSession) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(techSession.tenantId);
 
   const parsed = actionSchema.safeParse(await request.json());
   if (!parsed.success) {
@@ -72,7 +74,7 @@ export async function POST(request: NextRequest) {
 
   const { action, caseId, scheduleId, notes } = parsed.data;
   const step = await prisma.deptSchedule.findFirst({
-    where: { id: scheduleId, caseId },
+    where: { id: scheduleId, caseId, case: { tenantId: techSession.tenantId, deletedAt: null } },
     include: { case: true, technician: true },
   });
 

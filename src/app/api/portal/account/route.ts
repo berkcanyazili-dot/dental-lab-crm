@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getDoctorSession } from "@/server/services/portal";
 
 export async function GET() {
@@ -7,9 +7,10 @@ export async function GET() {
   if (!doctor) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(doctor.tenantId);
 
   const account = await prisma.dentalAccount.findFirst({
-    where: { id: doctor.dentalAccountId, tenantId: doctor.tenantId },
+    where: { id: doctor.dentalAccountId },
     select: {
       id: true,
       name: true,

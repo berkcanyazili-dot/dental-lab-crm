@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { ensureLabDefaults, getLabSettingsBundle } from "@/server/services/labSettings";
 import { getSessionTenant } from "@/server/services/tenant";
 
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   await ensureLabDefaults(sessionTenant.tenantId);
   const parsed = updateBundleSchema.safeParse(await request.json());
@@ -78,6 +79,31 @@ export async function POST(request: NextRequest) {
   }
 
   const { settings, products, workflow } = parsed.data;
+  const requestedProductIds = products.map((product) => product.id).filter(Boolean) as string[];
+  const requestedWorkflowIds = workflow.map((step) => step.id).filter(Boolean) as string[];
+
+  const [ownedProducts, ownedWorkflow] = await Promise.all([
+    requestedProductIds.length > 0
+      ? prisma.serviceProduct.findMany({
+          where: { id: { in: requestedProductIds } },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+    requestedWorkflowIds.length > 0
+      ? prisma.workflowStepTemplate.findMany({
+          where: { id: { in: requestedWorkflowIds } },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  if (ownedProducts.length !== requestedProductIds.length) {
+    return NextResponse.json({ error: "Invalid product id for current tenant" }, { status: 400 });
+  }
+
+  if (ownedWorkflow.length !== requestedWorkflowIds.length) {
+    return NextResponse.json({ error: "Invalid workflow step id for current tenant" }, { status: 400 });
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.labSettings.upsert({

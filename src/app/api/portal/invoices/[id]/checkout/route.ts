@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { getDoctorSession } from "@/server/services/portal";
 
@@ -25,11 +25,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (!doctor) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(doctor.tenantId);
 
   const invoice = await prisma.invoice.findFirst({
     where: {
       id: params.id,
-      tenantId: doctor.tenantId,
       dentalAccountId: doctor.dentalAccountId,
       status: { in: ["OPEN", "PARTIAL"] },
     },

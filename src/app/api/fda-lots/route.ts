@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   if (!caseId) return NextResponse.json({ error: "caseId required" }, { status: 400 });
 
   const lots = await prisma.fDALot.findMany({
-    where: { caseId },
+    where: { caseId, deletedAt: null },
     orderBy: { sortOrder: "asc" },
   });
   return NextResponse.json(lots);
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   }
 
   const maxOrder = await prisma.fDALot.aggregate({
-    where: { caseId },
+    where: { caseId, deletedAt: null },
     _max: { sortOrder: true },
   });
   const sortOrder = (maxOrder._max.sortOrder ?? -1) + 1;

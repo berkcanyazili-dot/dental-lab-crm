@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma } from "@/lib/prisma";
 import { allocateInvoiceNumber } from "@/server/services/accounting";
 import { getSessionTenant } from "@/server/services/tenant";
 
@@ -26,13 +26,14 @@ export async function GET(req: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const { searchParams } = new URL(req.url);
   const accountId = searchParams.get("accountId");
   const year = searchParams.get("year");
   const month = searchParams.get("month"); // 0-based
 
-  const where: Record<string, unknown> = { tenantId: sessionTenant.tenantId };
+  const where: Record<string, unknown> = {};
   if (accountId) where.dentalAccountId = accountId;
   if (year && month !== null) {
     const y = parseInt(year);
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const prisma = getTenantPrisma(sessionTenant.tenantId);
 
   const parsed = createInvoiceSchema.safeParse(await req.json());
   if (!parsed.success) {

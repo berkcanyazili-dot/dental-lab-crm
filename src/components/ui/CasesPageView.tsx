@@ -1,9 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { Plus } from "lucide-react";
 import CasesTable from "./CasesTable";
-import NewCaseModal from "./NewCaseModal";
 
 interface Case {
   id: string;
@@ -38,7 +38,6 @@ export default function CasesPageView({
 }: Props) {
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -75,13 +74,13 @@ export default function CasesPageView({
               {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(totalValue)}
             </p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
+          <Link
+            href="/cases/new"
             className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
             New Case
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -94,14 +93,6 @@ export default function CasesPageView({
           cases={cases}
           onStatusChange={allowStatusChange ? handleStatusChange : undefined}
           initialSearch={initialSearch}
-        />
-      )}
-
-      {showModal && (
-        <NewCaseModal
-          defaultStatus={statusFilter.split(",")[0]}
-          onClose={() => setShowModal(false)}
-          onSaved={() => { setShowModal(false); load(); }}
         />
       )}
     </div>

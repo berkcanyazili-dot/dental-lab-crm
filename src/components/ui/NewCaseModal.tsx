@@ -80,6 +80,8 @@ const caseItemSchema = z.object({
   shade: z.string().default(""),
   material: z.string().default("None"),
   price: z.coerce.number().nonnegative().default(0),
+  selectedTeeth: z.array(z.number()).default([]),
+  missingTeeth: z.array(z.number()).default([]),
 });
 
 const newCaseSchema = z.object({
@@ -109,8 +111,6 @@ const newCaseSchema = z.object({
   materialsReceived: z.string().default(""),
   notes: z.string().default(""),
   internalNotes: z.string().default(""),
-  selectedTeeth: z.array(z.number()).default([]),
-  missingTeeth: z.array(z.number()).default([]),
   items: z.array(caseItemSchema).min(1, "Add at least one service"),
 });
 
@@ -361,10 +361,17 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
       shippingCarrier: "UPS Second Day Air",
       shippingTime: "4:00 PM",
       metalSelection: "None",
-      selectedTeeth: [],
-      missingTeeth: [],
       items: [
-        { productType: "Crown", department: "Fixed", units: 1, shade: "", material: "None", price: 0 },
+        {
+          productType: "Crown",
+          department: "Fixed",
+          units: 1,
+          shade: "",
+          material: "None",
+          price: 0,
+          selectedTeeth: [],
+          missingTeeth: [],
+        },
       ],
     },
   });
@@ -379,8 +386,6 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
   const caseType        = watch("caseType");
   const tryIn           = watch("tryIn");
   const caseShade       = watch("caseShade") ?? "";
-  const selectedTeeth   = watch("selectedTeeth") ?? [];
-  const missingTeeth    = watch("missingTeeth") ?? [];
   const watchedItems    = watch("items") ?? [];
   const dueDate         = watch("dueDate") ?? "";
   const shippingTime    = watch("shippingTime") ?? "";
@@ -397,6 +402,18 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
 
   const totalUnits = watchedItems.reduce((s, i) => s + (Number(i.units) || 0), 0);
   const totalValue = watchedItems.reduce((s, i) => s + (Number(i.units) || 0) * (Number(i.price) || 0), 0);
+  const totalTeeth = Array.from(
+    new Set(
+      watchedItems.flatMap((item) =>
+        Array.isArray(item.selectedTeeth) ? item.selectedTeeth : []
+      )
+    )
+  ).length;
+  const tabHasErrors = {
+    services: Boolean(errors.items),
+    materials: Boolean(errors.materialsReceived || errors.metalSelection || errors.softTissueShade),
+    notes: Boolean(errors.notes || errors.internalNotes),
+  } as const;
 
   const serviceTree = useMemo(() => {
     if (!serviceProducts.length) return SERVICE_TREE;
@@ -484,8 +501,12 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
       ]
         .filter(Boolean)
         .join(" ");
-
-      const toothNums = [...data.selectedTeeth].sort((a, b) => a - b).join(", ");
+      const caseSelectedTeeth = Array.from(
+        new Set(data.items.flatMap((item) => item.selectedTeeth ?? []))
+      ).sort((a, b) => a - b);
+      const caseMissingTeeth = Array.from(
+        new Set(data.items.flatMap((item) => item.missingTeeth ?? []))
+      ).sort((a, b) => a - b);
 
       const response = await fetch("/api/cases", {
         method: "POST",
@@ -513,8 +534,8 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
           shade: data.caseShade || null,
           softTissueShade: data.softTissueShade || null,
           metalSelection: data.metalSelection !== "None" ? data.metalSelection : null,
-          selectedTeeth: data.selectedTeeth.length ? JSON.stringify(data.selectedTeeth) : null,
-          missingTeeth: data.missingTeeth.length ? JSON.stringify(data.missingTeeth) : null,
+          selectedTeeth: caseSelectedTeeth.length ? JSON.stringify(caseSelectedTeeth) : null,
+          missingTeeth: caseMissingTeeth.length ? JSON.stringify(caseMissingTeeth) : null,
           notes: data.notes || null,
           internalNotes: data.internalNotes || null,
           materialsReceived: data.materialsReceived || null,
@@ -524,7 +545,9 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
           generateSchedule: data.generateSchedule,
           items: data.items.map((item) => ({
             productType: item.productType,
-            toothNumbers: toothNums || null,
+            toothNumbers: item.selectedTeeth.length
+              ? [...item.selectedTeeth].sort((a, b) => a - b).join(", ")
+              : null,
             units: Number(item.units),
             shade: item.shade || data.caseShade || null,
             material: item.material !== "None" ? item.material : null,
@@ -761,7 +784,19 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
                           : "text-slate-300 hover:bg-slate-700"
                       }`}
                     >
-                      {key === "services" ? "Services" : key === "materials" ? "Material Received" : "Notes"}
+                      <span className="flex items-center gap-2">
+                        <span>
+                          {key === "services" ? "Services" : key === "materials" ? "Material Received" : "Notes"}
+                        </span>
+                        {tabHasErrors[key] && (
+                          <span
+                            aria-label={`${key} tab has validation errors`}
+                            className={`inline-block h-2 w-2 rounded-full ${
+                              activeTab === key ? "bg-red-600" : "bg-red-400"
+                            }`}
+                          />
+                        )}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -810,6 +845,8 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
                                         shade: "",
                                         material: "None",
                                         price: Number(catalogItem?.defaultPrice ?? 0),
+                                        selectedTeeth: [],
+                                        missingTeeth: [],
                                       });
                                     }}
                                     className="flex w-full items-center gap-2 border-b border-slate-900 px-5 py-1.5 text-left text-xs text-slate-300 hover:bg-sky-950 hover:text-white"
@@ -826,37 +863,94 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
 
                     {/* Items table — useFieldArray drives the rows */}
                     <div className="p-3">
-                      <div className="mb-2 grid grid-cols-[1fr_52px_82px_112px_78px_34px] gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                        <span>Service</span>
-                        <span>Qty</span>
-                        <span>Shade</span>
-                        <span>Material</span>
-                        <span>Price</span>
-                        <span />
-                      </div>
-                      <div className="space-y-2">
-                        {fields.map((field, index) => (
-                          <div
-                            key={field.id}
-                            className="grid grid-cols-[1fr_52px_82px_112px_78px_34px] gap-2"
-                          >
-                            <TextInput {...register(`items.${index}.productType`)} />
-                            <TextInput type="number" {...register(`items.${index}.units`)} />
-                            <TextInput {...register(`items.${index}.shade`)} />
-                            <SelectInput {...register(`items.${index}.material`)}>
-                              {MATERIALS.map((m) => <option key={m}>{m}</option>)}
-                            </SelectInput>
-                            <TextInput type="number" {...register(`items.${index}.price`)} />
-                            <button
-                              type="button"
-                              onClick={() => remove(index)}
-                              disabled={fields.length === 1}
-                              className="flex h-9 items-center justify-center rounded border border-slate-700 text-slate-400 hover:border-red-500 hover:text-red-300 disabled:opacity-30"
+                      <div className="space-y-3">
+                        {fields.map((field, index) => {
+                          const itemSelectedTeeth = watchedItems[index]?.selectedTeeth ?? [];
+                          const itemMissingTeeth = watchedItems[index]?.missingTeeth ?? [];
+
+                          return (
+                            <div
+                              key={field.id}
+                              className="rounded-lg border border-slate-700 bg-slate-950/70 p-3"
                             >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ))}
+                              <div className="mb-3 grid gap-2 md:grid-cols-[1fr_60px_90px_124px_84px_40px]">
+                                <TextInput {...register(`items.${index}.productType`)} />
+                                <TextInput type="number" {...register(`items.${index}.units`)} />
+                                <TextInput {...register(`items.${index}.shade`)} />
+                                <SelectInput {...register(`items.${index}.material`)}>
+                                  {MATERIALS.map((m) => <option key={m}>{m}</option>)}
+                                </SelectInput>
+                                <TextInput type="number" {...register(`items.${index}.price`)} />
+                                <button
+                                  type="button"
+                                  onClick={() => remove(index)}
+                                  disabled={fields.length === 1}
+                                  className="flex h-9 items-center justify-center rounded border border-slate-700 text-slate-400 hover:border-red-500 hover:text-red-300 disabled:opacity-30"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+
+                              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+                                    Tooth / Arch Selection
+                                  </p>
+                                  <p className="text-[11px] text-slate-500">
+                                    Map this specific service line to the right teeth or arch.
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setValue(
+                                        `items.${index}.selectedTeeth`,
+                                        Array.from({ length: 16 }, (_, i) => i + 1),
+                                        { shouldDirty: true }
+                                      )
+                                    }
+                                    className="h-8 rounded bg-slate-700 px-3 text-xs font-semibold text-white hover:bg-slate-600"
+                                  >
+                                    Upper Arch
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setValue(
+                                        `items.${index}.selectedTeeth`,
+                                        Array.from({ length: 16 }, (_, i) => i + 17),
+                                        { shouldDirty: true }
+                                      )
+                                    }
+                                    className="h-8 rounded bg-slate-700 px-3 text-xs font-semibold text-white hover:bg-slate-600"
+                                  >
+                                    Lower Arch
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setValue(`items.${index}.selectedTeeth`, [], { shouldDirty: true });
+                                      setValue(`items.${index}.missingTeeth`, [], { shouldDirty: true });
+                                    }}
+                                    className="h-8 rounded bg-slate-700 px-3 text-xs font-semibold text-white hover:bg-slate-600"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                              </div>
+
+                              <ToothDiagram
+                                selected={itemSelectedTeeth}
+                                missing={itemMissingTeeth}
+                                onChange={(sel, miss) => {
+                                  setValue(`items.${index}.selectedTeeth`, sel, { shouldDirty: true });
+                                  setValue(`items.${index}.missingTeeth`, miss, { shouldDirty: true });
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -912,45 +1006,17 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
 
             {/* ── Right column ─────────────────────────────────────────────── */}
             <div className="space-y-3">
-              <Panel title="Tooth Selection" icon={FlaskConical}>
-                <div className="mb-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setValue("selectedTeeth", Array.from({ length: 16 }, (_, i) => i + 1))
-                    }
-                    className="h-8 rounded bg-slate-700 px-3 text-xs font-semibold text-white hover:bg-slate-600"
-                  >
-                    All Upper
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setValue("selectedTeeth", Array.from({ length: 16 }, (_, i) => i + 17))
-                    }
-                    className="h-8 rounded bg-slate-700 px-3 text-xs font-semibold text-white hover:bg-slate-600"
-                  >
-                    All Lower
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setValue("selectedTeeth", []);
-                      setValue("missingTeeth", []);
-                    }}
-                    className="h-8 rounded bg-slate-700 px-3 text-xs font-semibold text-white hover:bg-slate-600"
-                  >
-                    Clear
-                  </button>
+              <Panel title="Tooth Mapping" icon={FlaskConical}>
+                <div className="space-y-2 text-sm text-slate-300">
+                  <p>
+                    Each service line now carries its own tooth or arch assignment.
+                  </p>
+                  <p className="text-slate-400">
+                    Use the selector inside each item card so a crown can stay on
+                    tooth 8 while a removable or full-arch service maps to the upper
+                    or lower arch.
+                  </p>
                 </div>
-                <ToothDiagram
-                  selected={selectedTeeth}
-                  missing={missingTeeth}
-                  onChange={(sel, miss) => {
-                    setValue("selectedTeeth", sel);
-                    setValue("missingTeeth", miss);
-                  }}
-                />
               </Panel>
 
               <Panel title="Shade Color" icon={ShieldCheck}>
@@ -1005,7 +1071,7 @@ export default function NewCaseModal({ onClose, onSaved }: Props) {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Teeth</span>
-                    <span>{selectedTeeth.length}</span>
+                    <span>{totalTeeth}</span>
                   </div>
                   <div className="flex justify-between border-t border-slate-700 pt-2 font-bold text-white">
                     <span>Total</span>

@@ -70,11 +70,17 @@ interface AuditEntry {
 
 interface FDALotEntry {
   id: string;
+  caseItemId: string | null;
   itemName: string;
   manufacturer: string | null;
   lotNumber: string;
   userName: string;
   createdAt: string;
+  caseItem?: {
+    id: string;
+    productType: string;
+    toothNumbers: string | null;
+  } | null;
 }
 
 interface AttachmentEntry {
@@ -192,6 +198,12 @@ function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType;
   );
 }
 
+function formatCaseItemLabel(item: Pick<CaseItem, "productType" | "toothNumbers">) {
+  return item.toothNumbers
+    ? `${item.productType} (${item.toothNumbers})`
+    : item.productType;
+}
+
 const MAX_ATTACHMENT_SIZE_BYTES = 50 * 1024 * 1024;
 
 const ACCEPTED_ATTACHMENT_TYPES = {
@@ -260,6 +272,7 @@ export default function CaseDetailPage() {
 
   const [newNote, setNewNote] = useState("");
   const [submittingNote, setSubmittingNote] = useState(false);
+  const [fdaCaseItemId, setFdaCaseItemId] = useState("");
   const [fdaItemName, setFdaItemName] = useState("");
   const [fdaManufacturer, setFdaManufacturer] = useState("");
   const [fdaLotNumber, setFdaLotNumber] = useState("");
@@ -479,8 +492,10 @@ export default function CaseDetailPage() {
         itemName: fdaItemName.trim(),
         manufacturer: fdaManufacturer.trim() || null,
         lotNumber: fdaLotNumber.trim(),
+        caseItemId: fdaCaseItemId || null,
       }),
     });
+    setFdaCaseItemId("");
     setFdaItemName("");
     setFdaManufacturer("");
     setFdaLotNumber("");
@@ -595,6 +610,7 @@ export default function CaseDetailPage() {
     [caseData.patientFirst, caseData.patientMI ? `${caseData.patientMI}.` : null, caseData.patientLast]
       .filter(Boolean)
       .join(" ") || caseData.patientName;
+  const selectedFdaCaseItem = caseData.items.find((item) => item.id === fdaCaseItemId) ?? null;
 
   const hasSchedule = caseData.schedule.length > 0;
   const stlAttachments =
@@ -951,11 +967,30 @@ export default function CaseDetailPage() {
             <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5">
               <SectionHeader icon={Activity} title="FDA Materials Tracking" />
 
-              <div className="grid grid-cols-1 md:grid-cols-[1.1fr_1fr_1fr_auto] gap-2 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-[1.15fr_1fr_1fr_1fr_auto] gap-2 mb-4">
+                <select
+                  value={fdaCaseItemId}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    setFdaCaseItemId(nextValue);
+                    const nextItem = caseData.items.find((item) => item.id === nextValue);
+                    if (nextItem) {
+                      setFdaItemName(formatCaseItemLabel(nextItem));
+                    }
+                  }}
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white transition-colors focus:border-sky-500 focus:outline-none"
+                >
+                  <option value="">Link to case item (optional)</option>
+                  {caseData.items.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {formatCaseItemLabel(item)}
+                    </option>
+                  ))}
+                </select>
                 <input
                   value={fdaItemName}
                   onChange={(e) => setFdaItemName(e.target.value)}
-                  placeholder="Item name (e.g. Zirconia Disc)"
+                  placeholder={selectedFdaCaseItem ? formatCaseItemLabel(selectedFdaCaseItem) : "Item name (e.g. Zirconia Disc)"}
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors"
                 />
                 <input
@@ -986,6 +1021,7 @@ export default function CaseDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-700/30">
+                        <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Linked Item</th>
                         <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
                         <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Manufacturer</th>
                         <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">Lot Number</th>
@@ -996,6 +1032,9 @@ export default function CaseDetailPage() {
                     <tbody className="divide-y divide-gray-700/20">
                       {caseData.fdaLots.map((lot) => (
                         <tr key={lot.id} className="hover:bg-gray-700/10 transition-colors">
+                          <td className="px-3 py-2.5 text-sm text-sky-300">
+                            {lot.caseItem ? formatCaseItemLabel(lot.caseItem) : "Case-level"}
+                          </td>
                           <td className="px-3 py-2.5 text-white font-medium">{lot.itemName}</td>
                           <td className="px-3 py-2.5 text-gray-400">{lot.manufacturer ?? "—"}</td>
                           <td className="px-3 py-2.5 font-mono text-yellow-300">{lot.lotNumber}</td>

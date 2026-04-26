@@ -74,7 +74,18 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       dentalAccount: true,
       technician: true,
       items: true,
-      fdaLots: { orderBy: { sortOrder: "asc" } },
+      fdaLots: {
+        include: {
+          caseItem: {
+            select: {
+              id: true,
+              productType: true,
+              toothNumbers: true,
+            },
+          },
+        },
+        orderBy: { sortOrder: "asc" },
+      },
       attachments: { orderBy: { createdAt: "desc" } },
       caseNotes: { orderBy: { createdAt: "desc" } },
       schedule: { include: { technician: true }, orderBy: { sortOrder: "asc" } },
@@ -109,7 +120,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       dentalAccount: true,
       technician: true,
       items: true,
-      fdaLots: { orderBy: { sortOrder: "asc" } },
+      fdaLots: {
+        include: {
+          caseItem: {
+            select: {
+              id: true,
+              productType: true,
+              toothNumbers: true,
+            },
+          },
+        },
+        orderBy: { sortOrder: "asc" },
+      },
       attachments: { orderBy: { createdAt: "desc" } },
       caseNotes: { orderBy: { createdAt: "desc" } },
       schedule: { include: { technician: true }, orderBy: { sortOrder: "asc" } },

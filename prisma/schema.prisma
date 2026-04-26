@@ -319,6 +319,8 @@ model FDALot {
   id           String   @id @default(cuid())
   caseId       String
   case         Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseItemId   String?
+  caseItem     CaseItem? @relation(fields: [caseItemId], references: [id], onDelete: SetNull)
   itemName     String
   manufacturer String?
   lotNumber    String
@@ -326,6 +328,8 @@ model FDALot {
   sortOrder    Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([caseId, caseItemId, sortOrder])
 }
 
 model CaseItem {
@@ -339,6 +343,7 @@ model CaseItem {
   material     String?
   notes        String?
   price        Decimal  @default(0) @db.Decimal(12, 2)
+  fdaLots      FDALot[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

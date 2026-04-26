@@ -7,6 +7,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  CreditCard,
   FileText,
   LogOut,
   PackagePlus,
@@ -36,6 +37,14 @@ interface PortalCase {
   dueDate: string | null;
   shippedDate: string | null;
   totalValue: string | number;
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    invoiceDate: string;
+    invoiceTotal: string | number;
+    balance: string | number;
+    status: string;
+  }>;
   items: Array<{ id: string; productType: string; toothNumbers: string | null; units: number; shade: string | null }>;
   schedule: Array<{ id: string; department: string; sortOrder: number; status: string; completedDate: string | null }>;
 }
@@ -53,6 +62,7 @@ export default function DoctorPortalPage() {
   const [cases, setCases] = useState<PortalCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [payingInvoiceId, setPayingInvoiceId] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -86,6 +96,24 @@ export default function DoctorPortalPage() {
     }).length,
     shipped: cases.filter((caseItem) => caseItem.status === "SHIPPED").length,
   };
+
+  async function handlePayNow(invoiceId: string) {
+    setPayingInvoiceId(invoiceId);
+    try {
+      const response = await fetch(`/api/portal/invoices/${invoiceId}/checkout`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      if (!response.ok || !data.url) {
+        throw new Error(data?.error ?? "Checkout could not be started.");
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Checkout could not be started.");
+      setPayingInvoiceId("");
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -163,6 +191,7 @@ export default function DoctorPortalPage() {
             <div className="divide-y divide-slate-800">
               {filteredCases.map((caseItem) => {
                 const step = activeStep(caseItem.status);
+                const openInvoice = caseItem.invoices.find((invoice) => Number(invoice.balance) > 0);
                 return (
                   <article key={caseItem.id} className="p-4">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -185,6 +214,26 @@ export default function DoctorPortalPage() {
                           <span>{formatCurrency(Number(caseItem.totalValue))}</span>
                         </div>
                       </div>
+                      {openInvoice && (
+                        <div className="flex min-w-[220px] flex-col items-start gap-2 rounded border border-slate-800 bg-slate-950/70 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Outstanding Invoice
+                          </p>
+                          <div className="text-sm text-slate-300">
+                            <p className="font-semibold text-white">{openInvoice.invoiceNumber}</p>
+                            <p>Balance {formatCurrency(Number(openInvoice.balance))}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handlePayNow(openInvoice.id)}
+                            disabled={payingInvoiceId === openInvoice.id}
+                            className="flex h-9 items-center gap-2 rounded bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                          >
+                            <CreditCard className="h-4 w-4" />
+                            {payingInvoiceId === openInvoice.id ? "Opening..." : "Pay Now"}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-4 grid grid-cols-5 gap-2">

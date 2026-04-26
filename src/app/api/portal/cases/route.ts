@@ -57,6 +57,17 @@ export async function GET() {
       dueDate: true,
       shippedDate: true,
       totalValue: true,
+      invoices: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          invoiceDate: true,
+          invoiceTotal: true,
+          balance: true,
+          status: true,
+        },
+        orderBy: { invoiceDate: "desc" },
+      },
       items: {
         select: {
           id: true,

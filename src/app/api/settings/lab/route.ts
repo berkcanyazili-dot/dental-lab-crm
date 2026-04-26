@@ -17,6 +17,8 @@ const labSettingsSchema = z
     defaultShippingCarrier: z.string().trim().optional().nullable(),
     defaultShippingTime: z.string().trim().optional().nullable(),
     workTicketFooter: z.string().trim().optional().nullable(),
+    stripeConnectedAccountId: z.string().trim().optional().nullable(),
+    stripeApplicationFeeBasisPoints: z.coerce.number().int().min(0).max(10000).default(0),
   })
   .strict();
 
@@ -81,6 +83,8 @@ export async function POST(request: NextRequest) {
         defaultShippingCarrier: settings.defaultShippingCarrier || null,
         defaultShippingTime: settings.defaultShippingTime || null,
         workTicketFooter: settings.workTicketFooter || null,
+        stripeConnectedAccountId: settings.stripeConnectedAccountId || null,
+        stripeApplicationFeeBasisPoints: settings.stripeApplicationFeeBasisPoints,
       },
       create: {
         id: "default",
@@ -95,6 +99,8 @@ export async function POST(request: NextRequest) {
         defaultShippingCarrier: settings.defaultShippingCarrier || null,
         defaultShippingTime: settings.defaultShippingTime || null,
         workTicketFooter: settings.workTicketFooter || null,
+        stripeConnectedAccountId: settings.stripeConnectedAccountId || null,
+        stripeApplicationFeeBasisPoints: settings.stripeApplicationFeeBasisPoints,
       },
     });
 

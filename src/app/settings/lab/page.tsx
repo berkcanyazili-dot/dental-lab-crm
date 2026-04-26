@@ -26,6 +26,8 @@ interface LabSettings {
   defaultShippingCarrier: string | null;
   defaultShippingTime: string | null;
   workTicketFooter: string | null;
+  stripeConnectedAccountId: string | null;
+  stripeApplicationFeeBasisPoints: number;
 }
 
 interface ServiceProduct {
@@ -59,6 +61,8 @@ const EMPTY_SETTINGS: LabSettings = {
   defaultShippingCarrier: "",
   defaultShippingTime: "",
   workTicketFooter: "",
+  stripeConnectedAccountId: "",
+  stripeApplicationFeeBasisPoints: 0,
 };
 
 function newProduct(sortOrder: number): ServiceProduct {
@@ -254,6 +258,14 @@ export default function LabSettingsPage() {
             <div className="md:col-span-2">
               <FieldLabel>Work Ticket Footer</FieldLabel>
               <textarea value={settings.workTicketFooter ?? ""} onChange={(event) => setSettings((current) => ({ ...current, workTicketFooter: event.target.value }))} className="h-24 w-full resize-none rounded-lg border border-gray-700 bg-gray-900 p-3 text-sm text-white outline-none focus:border-sky-500" />
+            </div>
+            <div>
+              <FieldLabel>Stripe Connected Account</FieldLabel>
+              <input value={settings.stripeConnectedAccountId ?? ""} onChange={(event) => setSettings((current) => ({ ...current, stripeConnectedAccountId: event.target.value }))} placeholder="acct_..." className="h-10 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 text-sm text-white outline-none focus:border-sky-500" />
+            </div>
+            <div>
+              <FieldLabel>Platform Fee (bps)</FieldLabel>
+              <input type="number" min={0} max={10000} value={settings.stripeApplicationFeeBasisPoints} onChange={(event) => setSettings((current) => ({ ...current, stripeApplicationFeeBasisPoints: Number(event.target.value) || 0 }))} className="h-10 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 text-sm text-white outline-none focus:border-sky-500" />
             </div>
           </div>
         </section>

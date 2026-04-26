@@ -1,4 +1,7 @@
-type DoctorNotificationContext = {
+import { NotificationJobStatus, NotificationJobType } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+
+export type DoctorNotificationContext = {
   caseNumber: string;
   patientName: string;
   doctorName: string | null;
@@ -108,14 +111,87 @@ async function sendDoctorSms(context: DoctorNotificationContext) {
   return { attempted: true, channel: "sms" as const };
 }
 
-export async function notifyDoctorOfPublicNote(context: DoctorNotificationContext) {
+export async function deliverDoctorPublicNoteNotification(context: DoctorNotificationContext) {
   const results = await Promise.allSettled([
     sendDoctorEmail(context),
     sendDoctorSms(context),
   ]);
 
   return {
-    email: results[0].status === "fulfilled" ? results[0].value : { attempted: true, channel: "email" as const, error: results[0].reason },
-    sms: results[1].status === "fulfilled" ? results[1].value : { attempted: true, channel: "sms" as const, error: results[1].reason },
+    email:
+      results[0].status === "fulfilled"
+        ? results[0].value
+        : { attempted: true, channel: "email" as const, error: String(results[0].reason) },
+    sms:
+      results[1].status === "fulfilled"
+        ? results[1].value
+        : { attempted: true, channel: "sms" as const, error: String(results[1].reason) },
   };
+}
+
+export async function enqueueDoctorPublicNoteNotification(context: DoctorNotificationContext) {
+  return prisma.notificationJob.create({
+    data: {
+      type: NotificationJobType.DOCTOR_PUBLIC_NOTE,
+      payload: context,
+    },
+  });
+}
+
+export async function processPendingNotificationJobs(limit = 10) {
+  const jobs = await prisma.notificationJob.findMany({
+    where: {
+      OR: [
+        { status: NotificationJobStatus.PENDING },
+        { status: NotificationJobStatus.FAILED, attempts: { lt: 5 } },
+      ],
+    },
+    orderBy: { queuedAt: "asc" },
+    take: limit,
+  });
+
+  let processed = 0;
+
+  for (const job of jobs) {
+    const claimed = await prisma.notificationJob.updateMany({
+      where: {
+        id: job.id,
+        status: { in: [NotificationJobStatus.PENDING, NotificationJobStatus.FAILED] },
+      },
+      data: {
+        status: NotificationJobStatus.PROCESSING,
+        attempts: { increment: 1 },
+        lastError: null,
+      },
+    });
+
+    if (claimed.count === 0) {
+      continue;
+    }
+
+    try {
+      if (job.type === NotificationJobType.DOCTOR_PUBLIC_NOTE) {
+        await deliverDoctorPublicNoteNotification(job.payload as unknown as DoctorNotificationContext);
+      }
+
+      await prisma.notificationJob.update({
+        where: { id: job.id },
+        data: {
+          status: NotificationJobStatus.SENT,
+          processedAt: new Date(),
+        },
+      });
+      processed += 1;
+    } catch (error) {
+      await prisma.notificationJob.update({
+        where: { id: job.id },
+        data: {
+          status: NotificationJobStatus.FAILED,
+          lastError: error instanceof Error ? error.message : "Unknown notification error",
+        },
+      });
+    }
+  }
+
+  return { processed, attempted: jobs.length };
 }

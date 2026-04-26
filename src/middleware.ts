@@ -7,6 +7,7 @@ const PUBLIC_API_ROUTES = [
   "/api/shopify/webhook",
   "/api/stripe/webhook",
   "/api/internal/tenant-subscription",
+  "/api/internal/notifications/process",
 ];
 
 function isPublicApiRoute(pathname: string) {

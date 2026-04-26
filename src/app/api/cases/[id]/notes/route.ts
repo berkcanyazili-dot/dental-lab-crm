@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getSessionAuthorName } from "@/server/services/authorship";
-import { notifyDoctorOfPublicNote } from "@/server/services/doctorNotifications";
+import { enqueueDoctorPublicNoteNotification } from "@/server/services/doctorNotifications";
 
 const noteSchema = z
   .object({
@@ -77,8 +77,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     data: { caseId: existingCase.id, content, authorName, visibleToDoctor },
   });
 
+  await prisma.caseAudit.create({
+    data: {
+      caseId: existingCase.id,
+      action: "NOTE_ADDED",
+      details: visibleToDoctor ? `Doctor-visible: ${content.slice(0, 80)}` : content.slice(0, 80),
+      authorName,
+    },
+  });
+
   if (visibleToDoctor) {
-    void notifyDoctorOfPublicNote({
+    await enqueueDoctorPublicNoteNotification({
       caseNumber: existingCase.caseNumber,
       patientName: existingCase.patientName,
       doctorName: existingCase.dentalAccount.doctorName,
@@ -88,15 +97,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       toEmail: existingCase.dentalAccount.email ?? null,
       toPhone: existingCase.dentalAccount.phone ?? null,
     });
+
+    void fetch(new URL("/api/internal/notifications/process", req.url), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-auth": process.env.NEXTAUTH_SECRET ?? "",
+      },
+      body: JSON.stringify({ limit: 5 }),
+    }).catch(() => null);
   }
 
-  await prisma.caseAudit.create({
-    data: {
-      caseId: existingCase.id,
-      action: "NOTE_ADDED",
-      details: visibleToDoctor ? `Doctor-visible: ${content.slice(0, 80)}` : content.slice(0, 80),
-      authorName,
-    },
-  });
   return NextResponse.json(note, { status: 201 });
 }

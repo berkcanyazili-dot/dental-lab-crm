@@ -7,11 +7,12 @@ import dynamic from "next/dynamic";
 import debounce from "lodash.debounce";
 import { upload } from "@vercel/blob/client";
 import { useDropzone } from "react-dropzone";
+import type { STLAnnotation } from "@/components/ui/STLViewer";
 import {
   ArrowLeft, ChevronDown, Save, RefreshCw, Plus, Send,
   CalendarDays, Clock, Package, Truck, User, Building2,
   FileText, Activity, Wrench, CheckCircle2, Circle,
-  AlertCircle, Loader2, Hash, Printer, Link2, UploadCloud,
+  AlertCircle, Loader2, Hash, Printer, Link2, UploadCloud, MapPin,
 } from "lucide-react";
 import { Toaster, toast } from "react-hot-toast";
 import ToothDiagram from "@/components/ui/ToothDiagram";
@@ -89,8 +90,33 @@ interface AttachmentEntry {
   fileName: string;
   fileUrl: string;
   fileType: string;
+  byteSize?: number | null;
   uploadedBy: string;
   createdAt: string;
+}
+
+interface ModelAnnotationEntry {
+  id: string;
+  attachmentId: string;
+  x: number | string;
+  y: number | string;
+  z: number | string;
+  color: string;
+  label: string | null;
+  authorName: string;
+  createdAt: string;
+  attachment?: {
+    id: string;
+    fileName: string;
+    fileUrl: string;
+  } | null;
+  caseNote?: {
+    id: string;
+    content: string;
+    authorName: string;
+    visibleToDoctor: boolean;
+    createdAt: string;
+  } | null;
 }
 
 interface Technician {
@@ -138,6 +164,7 @@ interface CaseDetail {
   audits: AuditEntry[];
   fdaLots?: FDALotEntry[];
   attachments?: AttachmentEntry[];
+  modelAnnotations?: ModelAnnotationEntry[];
 }
 
 /* ─── Helpers ───────────────────────────────────────────────── */
@@ -283,6 +310,13 @@ export default function CaseDetailPage() {
   const [attachmentMessage, setAttachmentMessage] = useState("");
   const [attachmentProgress, setAttachmentProgress] = useState<number | null>(null);
   const [selectedStlUrl, setSelectedStlUrl] = useState("");
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState("");
+  const [annotationDraft, setAnnotationDraft] = useState("");
+  const [annotationLabel, setAnnotationLabel] = useState("");
+  const [annotationColor, setAnnotationColor] = useState("#f59e0b");
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [annotationVisibleToDoctor, setAnnotationVisibleToDoctor] = useState(false);
+  const [submittingAnnotation, setSubmittingAnnotation] = useState(false);
   const hasInitializedAutosaveRef = useRef(false);
   const lastSavedSnapshotRef = useRef("");
 
@@ -377,6 +411,41 @@ export default function CaseDetailPage() {
       setSelectedStlUrl(stlAttachments[0].fileUrl);
     }
   }, [caseData?.attachments, selectedStlUrl]);
+
+  useEffect(() => {
+    if (!caseData?.modelAnnotations?.length) {
+      if (selectedAnnotationId) {
+        setSelectedAnnotationId("");
+      }
+      return;
+    }
+
+    const annotationStillExists = caseData.modelAnnotations.some(
+      (annotation) => annotation.id === selectedAnnotationId
+    );
+    if (!annotationStillExists && selectedAnnotationId) {
+      setSelectedAnnotationId("");
+    }
+  }, [caseData?.modelAnnotations, selectedAnnotationId]);
+
+  useEffect(() => {
+    if (!caseData?.modelAnnotations?.length || !selectedStlUrl || !selectedAnnotationId) {
+      return;
+    }
+
+    const selectedAttachment = caseData.attachments?.find(
+      (attachment) => attachment.fileUrl === selectedStlUrl
+    );
+
+    const annotationStillVisible = caseData.modelAnnotations.some(
+      (annotation) =>
+        annotation.id === selectedAnnotationId && annotation.attachmentId === selectedAttachment?.id
+    );
+
+    if (!annotationStillVisible) {
+      setSelectedAnnotationId("");
+    }
+  }, [caseData?.attachments, caseData?.modelAnnotations, selectedAnnotationId, selectedStlUrl]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedAutoSave = useMemo(
@@ -509,6 +578,67 @@ export default function CaseDetailPage() {
     setSubmittingFdaLot(false);
   };
 
+  const submitModelAnnotation = useCallback(
+    async (position: { x: number; y: number; z: number }) => {
+      if (!caseData || !annotationDraft.trim()) return;
+
+      const activeAttachment = caseData.attachments?.find(
+        (attachment) => attachment.fileUrl === selectedStlUrl
+      );
+
+      if (!activeAttachment) {
+        toast.error("Choose an STL file before adding an annotation.");
+        return;
+      }
+
+      setSubmittingAnnotation(true);
+      try {
+        const response = await fetch(`/api/cases/${id}/annotations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            attachmentId: activeAttachment.id,
+            x: position.x,
+            y: position.y,
+            z: position.z,
+            content: annotationDraft.trim(),
+            color: annotationColor,
+            label: annotationLabel.trim() || null,
+            visibleToDoctor: annotationVisibleToDoctor,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(errorData?.error ?? "Annotation could not be saved.");
+        }
+
+        const created: ModelAnnotationEntry = await response.json();
+        setSelectedAnnotationId(created.id);
+        setAnnotationDraft("");
+        setAnnotationLabel("");
+        setAnnotationVisibleToDoctor(false);
+        setAnnotationMode(false);
+        await load();
+        toast.success("Model annotation added");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Annotation could not be saved.");
+      } finally {
+        setSubmittingAnnotation(false);
+      }
+    },
+    [
+      annotationColor,
+      annotationDraft,
+      annotationLabel,
+      annotationVisibleToDoctor,
+      caseData,
+      id,
+      load,
+      selectedStlUrl,
+    ]
+  );
+
   const submitAttachmentFiles = useCallback(async (files: File[]) => {
     if (!files.length || !caseData) return;
 
@@ -625,6 +755,23 @@ export default function CaseDetailPage() {
         attachment.fileType.toLowerCase() === "stl" ||
         attachment.fileUrl.toLowerCase().endsWith(".stl")
     ) ?? [];
+
+  const selectedStlAttachment =
+    stlAttachments.find((attachment) => attachment.fileUrl === selectedStlUrl) ?? null;
+
+  const stlAnnotations = (caseData.modelAnnotations ?? []).filter(
+    (annotation) => annotation.attachmentId === selectedStlAttachment?.id
+  );
+
+  const viewerAnnotations: STLAnnotation[] = stlAnnotations.map((annotation) => ({
+    id: annotation.id,
+    x: Number(annotation.x),
+    y: Number(annotation.y),
+    z: Number(annotation.z),
+    color: annotation.color,
+    label: annotation.label,
+    noteContent: annotation.caseNote?.content ?? null,
+  }));
 
   return (
     <div className="min-h-screen bg-gray-900 pb-16">
@@ -1165,7 +1312,127 @@ export default function CaseDetailPage() {
                       </button>
                     ))}
                   </div>
-                  <STLViewer fileUrl={selectedStlUrl} className="h-[320px] w-full overflow-hidden rounded-xl border border-gray-700 bg-slate-950" />
+
+                  <div className="mb-3 grid gap-3 rounded-xl border border-gray-800 bg-gray-950/70 p-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+                    <div className="space-y-3">
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                        <textarea
+                          value={annotationDraft}
+                          onChange={(e) => setAnnotationDraft(e.target.value)}
+                          placeholder="Write the feedback you want tied to a pin on the model..."
+                          className="min-h-[92px] w-full rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500"
+                        />
+                        <div className="space-y-3 rounded-xl border border-gray-800 bg-gray-900/80 p-3">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                              Label
+                            </label>
+                            <input
+                              value={annotationLabel}
+                              onChange={(e) => setAnnotationLabel(e.target.value)}
+                              placeholder="e.g. Margin"
+                              className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-gray-500">
+                              Pin Color
+                            </label>
+                            <input
+                              type="color"
+                              value={annotationColor}
+                              onChange={(e) => setAnnotationColor(e.target.value)}
+                              className="h-10 w-full cursor-pointer rounded-lg border border-gray-700 bg-gray-950 p-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-400">
+                          <input
+                            type="checkbox"
+                            checked={annotationVisibleToDoctor}
+                            onChange={(e) => setAnnotationVisibleToDoctor(e.target.checked)}
+                            className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-sky-500 focus:ring-sky-500"
+                          />
+                          Visible to doctor
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => setAnnotationMode((current) => !current)}
+                          disabled={!annotationDraft.trim() || submittingAnnotation || !selectedStlAttachment}
+                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                            annotationMode
+                              ? "bg-amber-600 text-white hover:bg-amber-500"
+                              : "bg-sky-600 text-white hover:bg-sky-500"
+                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                          <MapPin className="h-3.5 w-3.5" />
+                          {annotationMode ? "Cancel Pin Mode" : "Place Pin on Model"}
+                        </button>
+
+                        {annotationMode && (
+                          <span className="text-xs text-amber-300">
+                            Next click on the model will drop this comment.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-gray-800 bg-gray-900/80 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                          Pins on this STL
+                        </span>
+                        <span className="text-xs text-gray-400">{stlAnnotations.length}</span>
+                      </div>
+                      {!stlAnnotations.length ? (
+                        <p className="text-xs text-gray-500">
+                          No annotation pins yet for this STL.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {stlAnnotations.map((annotation, index) => (
+                            <button
+                              key={annotation.id}
+                              type="button"
+                              onClick={() => setSelectedAnnotationId(annotation.id)}
+                              className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                                selectedAnnotationId === annotation.id
+                                  ? "border-sky-500/60 bg-sky-500/10"
+                                  : "border-gray-800 bg-gray-950 hover:border-gray-700"
+                              }`}
+                            >
+                              <div className="mb-1 flex items-center gap-2">
+                                <span
+                                  className="h-3 w-3 rounded-full border border-white/20"
+                                  style={{ backgroundColor: annotation.color }}
+                                />
+                                <span className="text-xs font-semibold text-white">
+                                  {annotation.label || `Pin ${index + 1}`}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-400">
+                                {annotation.caseNote?.content ?? "No note content"}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <STLViewer
+                    fileUrl={selectedStlUrl}
+                    className="h-[320px] w-full overflow-hidden rounded-xl border border-gray-700 bg-slate-950"
+                    annotations={viewerAnnotations}
+                    selectedAnnotationId={selectedAnnotationId || null}
+                    annotationMode={annotationMode}
+                    onAddAnnotation={(position) => void submitModelAnnotation(position)}
+                    onSelectAnnotation={setSelectedAnnotationId}
+                  />
                 </div>
               )}
 

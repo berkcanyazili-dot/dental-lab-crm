@@ -387,6 +387,7 @@ model Case {
   shopifyOrder      ShopifyOrder?
   fdaLots           FDALot[]
   attachments       Attachment[]
+  modelAnnotations  CaseModelAnnotation[]
 }
 
 model Attachment {
@@ -401,6 +402,7 @@ model Attachment {
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  modelAnnotations CaseModelAnnotation[]
 
   @@index([caseId, createdAt])
 }
@@ -448,6 +450,28 @@ model CaseNote {
   authorName String   @default("System")
   visibleToDoctor Boolean @default(false)
   createdAt  DateTime @default(now())
+  modelAnnotations CaseModelAnnotation[]
+}
+
+model CaseModelAnnotation {
+  id           String     @id @default(cuid())
+  caseId        String
+  case          Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  attachmentId  String
+  attachment    Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  caseNoteId    String?
+  caseNote      CaseNote?  @relation(fields: [caseNoteId], references: [id], onDelete: SetNull)
+  x             Decimal    @db.Decimal(12, 4)
+  y             Decimal    @db.Decimal(12, 4)
+  z             Decimal    @db.Decimal(12, 4)
+  color         String     @default("#f59e0b")
+  label         String?
+  authorName    String     @default("System")
+  deletedAt     DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([caseId, attachmentId, createdAt])
 }
 
 model DeptSchedule {

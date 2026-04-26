@@ -62,6 +62,7 @@ function buildCaseLookupWhere(rawId: string, tenantId: string): Prisma.CaseWhere
 
   return {
     tenantId,
+    deletedAt: null,
     OR: [
       { id: normalized },
       { caseNumber: normalized },
@@ -81,8 +82,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     include: {
       dentalAccount: true,
       technician: true,
-      items: true,
+      items: { where: { deletedAt: null } },
       fdaLots: {
+        where: { deletedAt: null },
         include: {
           caseItem: {
             select: {
@@ -94,7 +96,29 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         },
         orderBy: { sortOrder: "asc" },
       },
-      attachments: { orderBy: { createdAt: "desc" } },
+      attachments: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
+      modelAnnotations: {
+        where: { deletedAt: null },
+        include: {
+          attachment: {
+            select: {
+              id: true,
+              fileName: true,
+              fileUrl: true,
+            },
+          },
+          caseNote: {
+            select: {
+              id: true,
+              content: true,
+              authorName: true,
+              visibleToDoctor: true,
+              createdAt: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
       caseNotes: { orderBy: { createdAt: "desc" } },
       schedule: { include: { technician: true }, orderBy: { sortOrder: "asc" } },
       audits: { orderBy: { createdAt: "desc" }, take: 50 },
@@ -132,8 +156,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     include: {
       dentalAccount: true,
       technician: true,
-      items: true,
+      items: { where: { deletedAt: null } },
       fdaLots: {
+        where: { deletedAt: null },
         include: {
           caseItem: {
             select: {
@@ -145,7 +170,29 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         },
         orderBy: { sortOrder: "asc" },
       },
-      attachments: { orderBy: { createdAt: "desc" } },
+      attachments: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } },
+      modelAnnotations: {
+        where: { deletedAt: null },
+        include: {
+          attachment: {
+            select: {
+              id: true,
+              fileName: true,
+              fileUrl: true,
+            },
+          },
+          caseNote: {
+            select: {
+              id: true,
+              content: true,
+              authorName: true,
+              visibleToDoctor: true,
+              createdAt: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
       caseNotes: { orderBy: { createdAt: "desc" } },
       schedule: { include: { technician: true }, orderBy: { sortOrder: "asc" } },
       audits: { orderBy: { createdAt: "desc" }, take: 50 },
@@ -205,6 +252,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!sessionTenant) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const authorName = await getSessionAuthorName();
 
   const existingCase = await prisma.case.findFirst({
     where: buildCaseLookupWhere(params.id, sessionTenant.tenantId),
@@ -214,6 +262,19 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  await prisma.case.delete({ where: { id: existingCase.id } });
+  await prisma.$transaction([
+    prisma.case.update({
+      where: { id: existingCase.id },
+      data: { deletedAt: new Date() },
+    }),
+    prisma.caseAudit.create({
+      data: {
+        caseId: existingCase.id,
+        action: "CASE_SOFT_DELETED",
+        details: "Case archived via soft delete",
+        authorName,
+      },
+    }),
+  ]);
   return NextResponse.json({ success: true });
 }

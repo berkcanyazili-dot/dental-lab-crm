@@ -307,7 +307,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         await fulfillShopifyOrder(
           shopifyOrder.shopifyOrderId,
           updated.shippingCarrier,
-          undefined
+          updated.trackingNumber
         );
         await prisma.caseAudit.create({
           data: {

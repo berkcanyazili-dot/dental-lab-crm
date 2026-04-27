@@ -3,7 +3,6 @@ import { PriorityLevel } from "@prisma/client";
 
 const API_VERSION = "2024-01";
 
-/* ─── Types ──────────────────────────────────────────────────── */
 export interface ShopifyLineItem {
   id: string | number;
   title: string;
@@ -37,7 +36,11 @@ export interface ShopifyOrderRaw {
   line_items: ShopifyLineItem[];
 }
 
-/* ─── Internal helpers ───────────────────────────────────────── */
+interface ParsedVariantAttributes {
+  shade: string | null;
+  material: string | null;
+}
+
 function getHost() {
   const url = process.env.SHOPIFY_STORE_URL ?? "";
   return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -51,7 +54,6 @@ export function isConfigured() {
   return !!(process.env.SHOPIFY_STORE_URL && process.env.SHOPIFY_ADMIN_TOKEN);
 }
 
-/* ─── Core fetch wrapper ─────────────────────────────────────── */
 export async function shopifyFetch(path: string, options: RequestInit = {}) {
   const host = getHost();
   const token = getToken();
@@ -74,7 +76,6 @@ export async function shopifyFetch(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
-/* ─── Order operations ───────────────────────────────────────── */
 export async function fetchRecentOrders(hoursBack = 24): Promise<ShopifyOrderRaw[]> {
   const since = new Date(Date.now() - hoursBack * 3_600_000).toISOString();
   const data = await shopifyFetch(
@@ -90,24 +91,23 @@ export async function testConnection(): Promise<{ name: string; email: string; d
 
 export async function fulfillShopifyOrder(
   shopifyOrderId: string,
-  carrier?: string | null,
+  trackingCompany?: string | null,
   trackingNumber?: string | null
 ) {
-  // Step 1: get fulfillment order id
   const foData = await shopifyFetch(`/orders/${shopifyOrderId}/fulfillment_orders.json`);
   const fulfillmentOrderId = foData.fulfillment_orders?.[0]?.id;
   if (!fulfillmentOrderId) throw new Error("No open fulfillment order found on Shopify");
 
-  // Step 2: create fulfillment
   const body: Record<string, unknown> = {
     fulfillment: {
       line_items_by_fulfillment_order: [{ fulfillment_order_id: fulfillmentOrderId }],
       notify_customer: true,
     },
   };
-  if (carrier) {
+
+  if (trackingCompany || trackingNumber) {
     (body.fulfillment as Record<string, unknown>).tracking_info = {
-      company: carrier,
+      company: trackingCompany ?? "",
       number: trackingNumber ?? "",
     };
   }
@@ -118,10 +118,9 @@ export async function fulfillShopifyOrder(
   });
 }
 
-/* ─── Webhook HMAC verification ─────────────────────────────── */
 export function verifyWebhookHmac(rawBody: string, hmacHeader: string): boolean {
   const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
-  if (!secret) return true; // skip verification if no secret configured
+  if (!secret) return true;
   try {
     const digest = crypto
       .createHmac("sha256", secret)
@@ -136,7 +135,65 @@ export function verifyWebhookHmac(rawBody: string, hmacHeader: string): boolean 
   }
 }
 
-/* ─── Order → Case mapping ───────────────────────────────────── */
+function inferDepartmentFromTitle(title: string) {
+  const normalized = title.toLowerCase();
+
+  if (normalized.includes("night guard")) {
+    return "Removable";
+  }
+
+  if (normalized.includes("crown") || normalized.includes("bridge")) {
+    return "Fixed";
+  }
+
+  return null;
+}
+
+function normalizeVariantPart(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function parseVariantAttributes(variantTitle: string | null): ParsedVariantAttributes {
+  if (!variantTitle) {
+    return { shade: null, material: null };
+  }
+
+  const parts = variantTitle
+    .split(/\s*\/\s*|\s*\|\s*|\s*,\s*/)
+    .map(normalizeVariantPart)
+    .filter(Boolean);
+
+  let shade: string | null = null;
+  let material: string | null = null;
+
+  for (const part of parts) {
+    const normalized = part.toLowerCase();
+
+    if (!shade && normalized.includes("shade")) {
+      shade = normalizeVariantPart(part.replace(/shade\s*:\s*/i, ""));
+      continue;
+    }
+
+    if (!material && normalized.includes("material")) {
+      material = normalizeVariantPart(part.replace(/material\s*:\s*/i, ""));
+      continue;
+    }
+  }
+
+  if (!shade && parts.length > 0) {
+    shade = parts[0] ?? null;
+  }
+
+  if (!material && parts.length > 1) {
+    material = parts[1] ?? null;
+  }
+
+  return {
+    shade: shade || null,
+    material: material || null,
+  };
+}
+
 export function mapOrderToCase(order: ShopifyOrderRaw) {
   const tags = (order.tags ?? "")
     .split(",")
@@ -147,12 +204,19 @@ export function mapOrderToCase(order: ShopifyOrderRaw) {
   const panTag = tags.find((t) => /^pan[-\s]/.test(t));
   const pan = panTag ? panTag.replace(/^pan[-\s]/, "").trim() || null : null;
 
-  const items = (order.line_items ?? []).map((li) => ({
-    productType: li.title,
-    units: li.quantity,
-    price: parseFloat(li.price) || 0,
-    shade: li.variant_title ?? null,
-  }));
+  const items = (order.line_items ?? []).map((li) => {
+    const department = inferDepartmentFromTitle(li.title);
+    const parsedVariant = parseVariantAttributes(li.variant_title);
+
+    return {
+      productType: li.title,
+      units: li.quantity,
+      price: parseFloat(li.price) || 0,
+      shade: parsedVariant.shade,
+      material: parsedVariant.material,
+      notes: department,
+    };
+  });
 
   const addr = order.shipping_address;
   const shippingAddress = addr

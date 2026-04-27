@@ -25,6 +25,10 @@ function normalizeHost(storeUrl?: string | null) {
   return (storeUrl ?? "").replace(/^https?:\/\//, "").replace(/\/$/, "");
 }
 
+function normalizeEmail(email?: string | null) {
+  return email?.trim().toLowerCase() ?? null;
+}
+
 export async function getShopifySettings(tenantId?: string) {
   const resolvedTenantId = tenantId ?? (await resolveFallbackTenantId());
   return prisma.shopifySettings.findUnique({ where: { tenantId: resolvedTenantId } });
@@ -196,6 +200,71 @@ export async function importShopifyOrderAsCase(
   });
 }
 
+async function findOrCreateShopifyDentalAccount(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  order: ShopifyOrderRaw,
+  defaultAccountId?: string | null
+) {
+  const normalizedEmail = normalizeEmail(order.customer?.email);
+
+  if (normalizedEmail) {
+    const existingByEmail = await tx.dentalAccount.findFirst({
+      where: {
+        tenantId,
+        deletedAt: null,
+        email: {
+          equals: normalizedEmail,
+          mode: "insensitive",
+        },
+      },
+      select: { id: true },
+    });
+
+    if (existingByEmail) {
+      return existingByEmail.id;
+    }
+
+    const createdAccount = await tx.dentalAccount.create({
+      data: {
+        tenantId,
+        name:
+          `${order.customer?.first_name ?? ""} ${order.customer?.last_name ?? ""}`.trim() ||
+          normalizedEmail,
+        doctorName:
+          `${order.customer?.first_name ?? ""} ${order.customer?.last_name ?? ""}`.trim() || null,
+        email: normalizedEmail,
+        phone: order.shipping_address?.phone ?? null,
+        address: order.shipping_address?.address1 ?? null,
+        city: order.shipping_address?.city ?? null,
+        state: order.shipping_address?.province ?? null,
+        zip: order.shipping_address?.zip ?? null,
+        notes: "Auto-created from Shopify customer import",
+      },
+      select: { id: true },
+    });
+
+    return createdAccount.id;
+  }
+
+  if (defaultAccountId) {
+    const existingDefaultAccount = await tx.dentalAccount.findFirst({
+      where: {
+        id: defaultAccountId,
+        tenantId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (existingDefaultAccount) {
+      return existingDefaultAccount.id;
+    }
+  }
+
+  throw new Error("No matching dental account could be resolved for Shopify order.");
+}
+
 export function verifyShopifyWebhook(rawBody: string, hmacHeader: string, webhookSecret?: string | null) {
   if (!webhookSecret) return true;
   try {
@@ -235,13 +304,21 @@ export async function handleShopifyOrderWebhook(rawBody: string, hmacHeader: str
   });
   if (!account) return { status: "recorded" as const };
 
-  const { items, ...caseFields } = mapOrderToCase(order as unknown as ShopifyOrderRaw);
+  const rawShopifyOrder = order as unknown as ShopifyOrderRaw;
+  const { items, ...caseFields } = mapOrderToCase(rawShopifyOrder);
   const accountTenantId = account.tenantId ?? (await resolveFallbackTenantId());
   await prisma.$transaction(async (tx) => {
+    const resolvedDentalAccountId = await findOrCreateShopifyDentalAccount(
+      tx,
+      accountTenantId,
+      rawShopifyOrder,
+      settings.defaultAccountId
+    );
+
     const newCase = await createCaseWithTx(tx, {
       tenantId: accountTenantId,
       ...caseFields,
-      dentalAccountId: settings.defaultAccountId as string,
+      dentalAccountId: resolvedDentalAccountId,
       status: "INCOMING",
       caseType: "NEW",
       caseOrigin: "SHOPIFY",

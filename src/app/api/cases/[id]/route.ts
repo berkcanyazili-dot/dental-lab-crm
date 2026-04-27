@@ -20,6 +20,7 @@ const updateCaseSchema = z
     priority: z.enum(["NORMAL", "RUSH", "STAT"]).optional(),
     caseType: z.enum(["NEW", "REMAKE", "REPAIR"]).optional(),
     remakeReason: z.enum(["MARGIN", "SHADE", "FIT", "BITE", "BROKEN", "DOCTOR_ERROR", "LAB_ERROR", "PATIENT_CHANGE", "OTHER"]).optional().nullable(),
+    remakeFault: z.enum(["LAB", "CLINIC"]).optional().nullable(),
     originalCaseId: z.string().trim().min(1).optional().nullable(),
     caseOrigin: z.enum(["LOCAL", "SHOPIFY"]).optional(),
     route: z.enum(["LOCAL", "SHIP", "PICKUP"]).optional(),
@@ -166,7 +167,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   const existingCase = await prisma.case.findFirst({
     where: buildCaseLookupWhere(params.id, sessionTenant.tenantId),
-    select: { id: true, caseType: true },
+    select: { id: true, caseType: true, remakeReason: true, remakeFault: true },
   });
   if (!existingCase) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -187,6 +188,26 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       { error: "Remake cases must be linked to an original case" },
       { status: 400 }
     );
+  }
+
+  const effectiveCaseType = body.caseType ?? existingCase.caseType;
+  const effectiveRemakeReason = body.remakeReason ?? existingCase.remakeReason;
+  const effectiveRemakeFault = body.remakeFault ?? existingCase.remakeFault;
+
+  if (effectiveCaseType === "REMAKE") {
+    if (effectiveRemakeReason === null || effectiveRemakeReason === undefined) {
+      return NextResponse.json(
+        { error: "Remake reason is required for remake cases" },
+        { status: 400 }
+      );
+    }
+
+    if (effectiveRemakeFault === null || effectiveRemakeFault === undefined) {
+      return NextResponse.json(
+        { error: "Remake fault is required for remake cases" },
+        { status: 400 }
+      );
+    }
   }
 
   const before = await prisma.case.findUnique({ where: { id: existingCase.id } });

@@ -49,6 +49,11 @@ enum RemakeReason {
   OTHER
 }
 
+enum RemakeFault {
+  LAB
+  CLINIC
+}
+
 enum CaseOrigin {
   LOCAL
   SHOPIFY
@@ -189,7 +194,7 @@ model Tenant {
   stripeSubscriptionCurrentPeriodEnd DateTime?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
-  users                 User[]
+  members               TenantMember[]
   dentalAccounts        DentalAccount[]
   cases                 Case[]
   technicians           Technician[]
@@ -199,7 +204,6 @@ model Tenant {
   shopifySettings       ShopifySettings?
   serviceProducts       ServiceProduct[]
   workflowStepTemplates WorkflowStepTemplate[]
-  tenantAccesses        TenantAccess[]
 }
 
 model LabSettings {
@@ -266,8 +270,6 @@ model ShopifySettings {
 
 model User {
   id            String        @id @default(cuid())
-  tenantId      String?
-  tenant        Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name          String?
   email         String        @unique
   emailVerified DateTime?
@@ -281,15 +283,16 @@ model User {
   authAccounts  AuthAccount[]
   sessions      Session[]
   technician    Technician?
-  tenantAccesses TenantAccess[]
+  tenantMembers TenantMember[]
 }
 
-model TenantAccess {
+model TenantMember {
   id              String        @id @default(cuid())
   userId          String
   user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenantId        String
   tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role            UserRole      @default(DOCTOR)
   dentalAccountId String?
   dentalAccount   DentalAccount? @relation(fields: [dentalAccountId], references: [id], onDelete: SetNull)
   isDefault       Boolean       @default(false)
@@ -355,7 +358,7 @@ model DentalAccount {
   cases      Case[]
   invoices   Invoice[]
   users      User[]
-  tenantAccesses TenantAccess[]
+  tenantMembers TenantMember[]
 }
 
 model Case {
@@ -377,6 +380,7 @@ model Case {
   priority          PriorityLevel @default(NORMAL)
   caseType          CaseType      @default(NEW)
   remakeReason      RemakeReason?
+  remakeFault       RemakeFault?
   originalCaseId    String?
   originalCase      Case?         @relation("CaseRemakes", fields: [originalCaseId], references: [id], onDelete: SetNull)
   remakes           Case[]        @relation("CaseRemakes")

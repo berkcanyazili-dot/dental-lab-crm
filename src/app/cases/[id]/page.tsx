@@ -8,6 +8,7 @@ import debounce from "lodash.debounce";
 import { upload } from "@vercel/blob/client";
 import { useDropzone } from "react-dropzone";
 import type { STLAnnotation } from "@/components/ui/STLViewer";
+import { getPusherClient } from "@/lib/pusher";
 import {
   ArrowLeft, ChevronDown, Save, RefreshCw, Plus, Send,
   CalendarDays, Clock, Package, Truck, User, Building2,
@@ -137,6 +138,9 @@ interface CaseDetail {
   status: string;
   priority: string;
   caseType: string;
+  remakeReason: string | null;
+  remakeFault: "LAB" | "CLINIC" | null;
+  originalCaseId: string | null;
   caseOrigin: string;
   route: string;
   rushOrder: boolean;
@@ -290,6 +294,8 @@ export default function CaseDetailPage() {
   const [generatingSchedule, setGeneratingSchedule] = useState(false);
 
   const [editStatus, setEditStatus] = useState("");
+  const [remakeReason, setRemakeReason] = useState("");
+  const [remakeFault, setRemakeFault] = useState("");
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([]);
   const [missingTeeth, setMissingTeeth] = useState<number[]>([]);
   const [shade, setShade] = useState("");
@@ -322,6 +328,8 @@ export default function CaseDetailPage() {
 
   const autoSavePayload = useMemo(() => ({
     status: editStatus,
+    remakeReason: remakeReason || null,
+    remakeFault: remakeFault || null,
     shade: shade || null,
     softTissueShade: softTissueShade || null,
     metalSelection: metalSelection || null,
@@ -331,6 +339,8 @@ export default function CaseDetailPage() {
     missingTeeth: JSON.stringify(missingTeeth),
   }), [
     editStatus,
+    remakeReason,
+    remakeFault,
     shade,
     softTissueShade,
     metalSelection,
@@ -361,6 +371,8 @@ export default function CaseDetailPage() {
       setCaseData(c);
       setTechnicians(Array.isArray(t) ? t : []);
       setEditStatus(c.status);
+      setRemakeReason(c.remakeReason ?? "");
+      setRemakeFault(c.remakeFault ?? "");
       setSelectedTeeth(c.selectedTeeth ? JSON.parse(c.selectedTeeth) : []);
       setMissingTeeth(c.missingTeeth ? JSON.parse(c.missingTeeth) : []);
       setShade(c.shade ?? "");
@@ -370,6 +382,8 @@ export default function CaseDetailPage() {
       setInternalNotes(c.internalNotes ?? "");
       lastSavedSnapshotRef.current = JSON.stringify({
         status: c.status,
+        remakeReason: c.remakeReason ?? null,
+        remakeFault: c.remakeFault ?? null,
         shade: c.shade ?? null,
         softTissueShade: c.softTissueShade ?? null,
         metalSelection: c.metalSelection ?? null,
@@ -390,6 +404,37 @@ export default function CaseDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!caseData?.id) {
+      return;
+    }
+
+    let unsubscribe = () => {};
+
+    void (async () => {
+      const pusher = await getPusherClient();
+      if (!pusher) {
+        return;
+      }
+
+      const channelName = `case-${caseData.id}`;
+      const channel = pusher.subscribe(channelName);
+      const handleUpdate = () => {
+        void load();
+      };
+
+      channel.bind("update", handleUpdate);
+      unsubscribe = () => {
+        channel.unbind("update", handleUpdate);
+        pusher.unsubscribe(channelName);
+      };
+    })();
+
+    return () => {
+      unsubscribe();
+    };
+  }, [caseData?.id, load]);
 
   useEffect(() => {
     const stlAttachments =
@@ -503,6 +548,8 @@ export default function CaseDetailPage() {
 
       const updatedCase: CaseDetail = await response.json();
       setCaseData(updatedCase);
+      setRemakeReason(updatedCase.remakeReason ?? "");
+      setRemakeFault(updatedCase.remakeFault ?? "");
       lastSavedSnapshotRef.current = JSON.stringify(payload);
       setSaveState("saved");
 
@@ -874,6 +921,7 @@ export default function CaseDetailPage() {
   const selectedFdaCaseItem = caseData.items.find((item) => item.id === fdaCaseItemId) ?? null;
 
   const hasSchedule = caseData.schedule.length > 0;
+  const isRemakeCase = caseData.caseType === "REMAKE" || editStatus === "REMAKE";
   const stlAttachments =
     caseData.attachments?.filter(
       (attachment) =>
@@ -1189,6 +1237,56 @@ export default function CaseDetailPage() {
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-500 transition-colors resize-none"
                 />
               </div>
+
+              {isRemakeCase && (
+                <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-amber-400" />
+                    <h3 className="text-sm font-semibold text-white">Remake Classification</h3>
+                  </div>
+                  <p className="mb-4 text-xs text-gray-400">
+                    Remake cases need both a reason and a fault assignment so the remake analytics stay trustworthy.
+                  </p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-gray-500">
+                        Remake Reason <span className="text-red-400">*</span>
+                      </label>
+                      <select
+                        value={remakeReason}
+                        onChange={(e) => setRemakeReason(e.target.value)}
+                        className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                      >
+                        <option value="">Select reason</option>
+                        {["MARGIN", "SHADE", "FIT", "BITE", "BROKEN", "DOCTOR_ERROR", "LAB_ERROR", "PATIENT_CHANGE", "OTHER"].map((reason) => (
+                          <option key={reason} value={reason}>
+                            {reason.replaceAll("_", " ")}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-gray-500">
+                        Fault <span className="text-red-400">*</span>
+                      </label>
+                      <select
+                        value={remakeFault}
+                        onChange={(e) => setRemakeFault(e.target.value)}
+                        className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                      >
+                        <option value="">Select fault</option>
+                        <option value="LAB">LAB</option>
+                        <option value="CLINIC">CLINIC</option>
+                      </select>
+                    </div>
+                  </div>
+                  {(!remakeReason || !remakeFault) && (
+                    <p className="mt-3 text-xs text-amber-300">
+                      Both fields are required for remake cases and will be enforced on save.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Case Notes */}

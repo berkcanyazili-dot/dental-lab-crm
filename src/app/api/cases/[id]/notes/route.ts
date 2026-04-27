@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { triggerCaseUpdate } from "@/lib/pusher";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { enqueueDoctorPublicNoteNotification } from "@/server/services/doctorNotifications";
 
@@ -107,6 +108,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       body: JSON.stringify({ limit: 5 }),
     }).catch(() => null);
   }
+
+  await triggerCaseUpdate(existingCase.id, {
+    type: "note_added",
+    noteId: note.id,
+  });
 
   return NextResponse.json(note, { status: 201 });
 }

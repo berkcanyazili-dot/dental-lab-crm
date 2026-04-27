@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { triggerCaseUpdate } from "@/lib/pusher";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { inferAttachmentType } from "@/server/services/attachments";
 import { reportTenantStorageUsageToStripe } from "@/server/services/storageBilling";
@@ -97,6 +98,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       console.error("Failed to report tenant storage usage for manual attachment", error);
     }
   }
+
+  await triggerCaseUpdate(existingCase.id, {
+    type: "attachment_added",
+    attachmentId: attachment.id,
+  });
 
   return NextResponse.json(attachment, { status: 201 });
 }

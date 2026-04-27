@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { triggerCaseUpdate } from "@/lib/pusher";
 import { getSessionAuthorName } from "@/server/services/authorship";
 import { reportTenantStorageUsageToStripe } from "@/server/services/storageBilling";
 import {
@@ -143,6 +144,11 @@ export async function POST(
             console.error("Failed to report tenant storage usage after upload", error);
           }
         }
+
+        await triggerCaseUpdate(caseId, {
+          type: "attachment_added",
+          attachmentId: attachment.id,
+        });
       },
     });
 

@@ -13,10 +13,6 @@ async function main() {
   });
 
   await prisma.$transaction([
-    prisma.user.updateMany({
-      where: { tenantId: { equals: null } },
-      data: { tenantId: tenant.id },
-    }),
     prisma.dentalAccount.updateMany({
       where: { tenantId: { equals: null } },
       data: { tenantId: tenant.id },

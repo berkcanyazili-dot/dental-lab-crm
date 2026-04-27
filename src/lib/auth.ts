@@ -70,11 +70,11 @@ async function buildSessionUser(userId?: string | null, email?: string | null) {
     where: userId ? { id: userId } : { email: email ?? undefined },
     include: {
       technician: { select: { id: true } },
-      tenant: { select: { name: true } },
       dentalAccount: { select: { name: true } },
-      tenantAccesses: {
+      tenantMembers: {
         select: {
           tenantId: true,
+          role: true,
           dentalAccountId: true,
           isDefault: true,
           tenant: { select: { name: true } },
@@ -87,9 +87,10 @@ async function buildSessionUser(userId?: string | null, email?: string | null) {
 }
 
 function mapTenantAccesses(
-  tenantAccesses:
+  tenantMembers:
     | Array<{
         tenantId: string;
+        role: string;
         dentalAccountId: string | null;
         isDefault: boolean;
         tenant: { name: string };
@@ -97,38 +98,13 @@ function mapTenantAccesses(
       }>
     | undefined
 ): SessionTenantAccess[] {
-  return (tenantAccesses ?? []).map((access) => ({
+  return (tenantMembers ?? []).map((access) => ({
     tenantId: access.tenantId,
     tenantName: access.tenant.name,
     dentalAccountId: access.dentalAccountId ?? null,
     dentalAccountName: access.dentalAccount?.name ?? null,
     isDefault: access.isDefault,
   }));
-}
-
-function withLegacyDoctorAccess(
-  user: {
-    role: string;
-    tenantId: string | null;
-    dentalAccountId: string | null;
-    tenant?: { name: string } | null;
-    dentalAccount?: { name: string } | null;
-  },
-  accesses: SessionTenantAccess[]
-) {
-  if (user.role !== "DOCTOR" || accesses.length > 0 || !user.tenantId || !user.dentalAccountId) {
-    return accesses;
-  }
-
-  return [
-    {
-      tenantId: user.tenantId,
-      tenantName: user.tenant?.name ?? "Dental Lab",
-      dentalAccountId: user.dentalAccountId,
-      dentalAccountName: user.dentalAccount?.name ?? null,
-      isDefault: true,
-    },
-  ];
 }
 
 function pickDefaultTenantAccess(accesses: SessionTenantAccess[]) {
@@ -158,11 +134,11 @@ export const authOptions: NextAuthOptions = {
           where: { email: credentials.email },
           include: {
             technician: { select: { id: true } },
-            tenant: { select: { name: true } },
             dentalAccount: { select: { name: true } },
-            tenantAccesses: {
+            tenantMembers: {
               select: {
                 tenantId: true,
+                role: true,
                 dentalAccountId: true,
                 isDefault: true,
                 tenant: { select: { name: true } },
@@ -180,10 +156,9 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           name: user.name,
           role: user.role,
-          tenantId: user.tenantId,
           dentalAccountId: user.dentalAccountId,
           technicianId: user.technician?.id ?? null,
-          tenantAccesses: mapTenantAccesses(user.tenantAccesses),
+          tenantAccesses: mapTenantAccesses(user.tenantMembers),
         };
       },
     }),
@@ -214,19 +189,15 @@ export const authOptions: NextAuthOptions = {
 
       const dbUser = await buildSessionUser(token.sub as string | undefined, token.email ?? null);
       if (dbUser) {
-        const tenantAccesses = withLegacyDoctorAccess(
-          dbUser,
-          mapTenantAccesses(dbUser.tenantAccesses)
-        );
+        const tenantAccesses = mapTenantAccesses(dbUser.tenantMembers);
         const defaultAccess = pickDefaultTenantAccess(tenantAccesses);
 
         token.email = dbUser.email;
         token.name = dbUser.name ?? token.name;
         token.role = dbUser.role;
         token.tenantAccesses = tenantAccesses;
-        token.tenantId = dbUser.role === "DOCTOR" ? defaultAccess?.tenantId ?? null : dbUser.tenantId;
-        token.dentalAccountId =
-          dbUser.role === "DOCTOR" ? defaultAccess?.dentalAccountId ?? null : dbUser.dentalAccountId;
+        token.tenantId = defaultAccess?.tenantId ?? null;
+        token.dentalAccountId = defaultAccess?.dentalAccountId ?? dbUser.dentalAccountId;
         token.technicianId = dbUser.technician?.id ?? null;
       }
 

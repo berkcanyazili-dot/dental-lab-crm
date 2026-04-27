@@ -48,8 +48,7 @@ export async function getDoctorSession(): Promise<DoctorSession | null> {
   let tenantAccesses = (user.tenantAccesses ?? []).filter((access) => Boolean(access.dentalAccountId));
 
   if (tenantAccesses.length === 0) {
-    const [dbAccesses, legacyDoctor] = await Promise.all([
-      prisma.tenantAccess.findMany({
+    const dbAccesses = await prisma.tenantMember.findMany({
         where: {
           userId: user.id,
           dentalAccountId: { not: null },
@@ -62,17 +61,7 @@ export async function getDoctorSession(): Promise<DoctorSession | null> {
           dentalAccount: { select: { name: true } },
         },
         orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
-      }),
-      prisma.user.findUnique({
-        where: { id: user.id },
-        select: {
-          tenantId: true,
-          dentalAccountId: true,
-          tenant: { select: { name: true } },
-          dentalAccount: { select: { name: true } },
-        },
-      }),
-    ]);
+      });
 
     tenantAccesses = dbAccesses.map((access) => ({
       tenantId: access.tenantId,
@@ -81,22 +70,6 @@ export async function getDoctorSession(): Promise<DoctorSession | null> {
       dentalAccountName: access.dentalAccount?.name ?? null,
       isDefault: access.isDefault,
     }));
-
-    if (
-      tenantAccesses.length === 0 &&
-      legacyDoctor?.tenantId &&
-      legacyDoctor.dentalAccountId
-    ) {
-      tenantAccesses = [
-        {
-          tenantId: legacyDoctor.tenantId,
-          tenantName: legacyDoctor.tenant?.name ?? "Dental Lab",
-          dentalAccountId: legacyDoctor.dentalAccountId,
-          dentalAccountName: legacyDoctor.dentalAccount?.name ?? null,
-          isDefault: true,
-        },
-      ];
-    }
   }
 
   const cookieStore = await cookies();

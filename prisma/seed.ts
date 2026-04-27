@@ -16,9 +16,8 @@ async function main() {
   const adminPassword = await bcrypt.hash("admin123", 10);
   await prisma.user.upsert({
     where: { email: "admin@dentallab.com" },
-    update: { tenantId: tenant.id },
+    update: {},
     create: {
-      tenantId: tenant.id,
       email: "admin@dentallab.com",
       name: "Admin User",
       password: adminPassword,
@@ -48,10 +47,9 @@ async function main() {
   const technicianUsers = await Promise.all([
     prisma.user.upsert({
       where: { email: "maria@dentallab.com" },
-      update: { role: "TECHNICIAN", tenantId: tenant.id },
+      update: { role: "TECHNICIAN" },
       create: {
         email: "maria@dentallab.com",
-        tenantId: tenant.id,
         name: "Maria Garcia",
         password: techPassword,
         role: "TECHNICIAN",
@@ -59,10 +57,9 @@ async function main() {
     }),
     prisma.user.upsert({
       where: { email: "james@dentallab.com" },
-      update: { role: "TECHNICIAN", tenantId: tenant.id },
+      update: { role: "TECHNICIAN" },
       create: {
         email: "james@dentallab.com",
-        tenantId: tenant.id,
         name: "James Chen",
         password: techPassword,
         role: "TECHNICIAN",
@@ -70,10 +67,9 @@ async function main() {
     }),
     prisma.user.upsert({
       where: { email: "sarah@dentallab.com" },
-      update: { role: "TECHNICIAN", tenantId: tenant.id },
+      update: { role: "TECHNICIAN" },
       create: {
         email: "sarah@dentallab.com",
-        tenantId: tenant.id,
         name: "Sarah Johnson",
         password: techPassword,
         role: "TECHNICIAN",
@@ -151,9 +147,8 @@ async function main() {
   const doctorPassword = await bcrypt.hash("doctor123", 10);
   await prisma.user.upsert({
     where: { email: "doctor@brightsmile.com" },
-    update: { dentalAccountId: accounts[0].id, role: "DOCTOR", tenantId: tenant.id },
+    update: { dentalAccountId: accounts[0].id, role: "DOCTOR" },
     create: {
-      tenantId: tenant.id,
       email: "doctor@brightsmile.com",
       name: "Dr. Smith",
       password: doctorPassword,
@@ -167,7 +162,7 @@ async function main() {
     select: { id: true },
   });
 
-  await prisma.tenantAccess.upsert({
+  await prisma.tenantMember.upsert({
     where: {
       userId_tenantId: {
         userId: doctorUser.id,

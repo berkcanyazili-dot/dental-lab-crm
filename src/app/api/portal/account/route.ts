@@ -29,5 +29,15 @@ export async function GET() {
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ ...account, user: doctor });
+  return NextResponse.json({
+    ...account,
+    user: doctor,
+    currentLab: {
+      tenantId: doctor.tenantId,
+      tenantName: doctor.tenantName,
+      dentalAccountId: doctor.dentalAccountId,
+      dentalAccountName: doctor.dentalAccountName,
+    },
+    accessibleLabs: doctor.accessibleLabs,
+  });
 }

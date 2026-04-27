@@ -517,8 +517,96 @@ export default function CaseDetailPage() {
     }
   }
 
+  const updateCaseStatusOptimistically = async (nextStatus: string) => {
+    if (!caseData || nextStatus === editStatus) {
+      return;
+    }
+
+    const previousStatus = editStatus;
+    const previousCaseStatus = caseData.status;
+    const previousSnapshot = lastSavedSnapshotRef.current;
+    const nextPayload = {
+      ...autoSavePayload,
+      status: nextStatus,
+    };
+
+    debouncedAutoSave.cancel();
+    setEditStatus(nextStatus);
+    setCaseData((current) => (current ? { ...current, status: nextStatus } : current));
+    lastSavedSnapshotRef.current = JSON.stringify(nextPayload);
+    setSaving(true);
+    setSaveState("saving");
+
+    try {
+      const response = await fetch(`/api/cases/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextPayload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error ?? "Case status could not be updated.");
+      }
+
+      const updatedCase: CaseDetail = await response.json();
+      setCaseData(updatedCase);
+      setEditStatus(updatedCase.status);
+      lastSavedSnapshotRef.current = JSON.stringify({
+        ...nextPayload,
+        status: updatedCase.status,
+      });
+      setSaveState("saved");
+    } catch (error) {
+      setEditStatus(previousStatus);
+      setCaseData((current) => (current ? { ...current, status: previousCaseStatus } : current));
+      lastSavedSnapshotRef.current = previousSnapshot;
+      setSaveState("error");
+      toast.error(error instanceof Error ? error.message : "Case status could not be updated.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /* ─── Schedule step update ───────────────────────────────── */
   const updateStep = async (stepId: string, field: string, value: string) => {
+    const previousStep = caseData?.schedule.find((step) => step.id === stepId);
+    if (!previousStep) {
+      return;
+    }
+
+    const nextTechnician = technicians.find((technician) => technician.id === value);
+    const optimisticStep: ScheduleStep = {
+      ...previousStep,
+      ...(field === "status"
+        ? {
+            status: value,
+            completedDate:
+              value === "COMPLETE"
+                ? previousStep.completedDate ?? new Date().toISOString()
+                : null,
+          }
+        : {}),
+      ...(field === "technicianId"
+        ? {
+            technicianId: value || null,
+            technician: nextTechnician
+              ? { id: nextTechnician.id, name: nextTechnician.name }
+              : null,
+          }
+        : {}),
+      ...(field === "scheduledDate" ? { scheduledDate: value || null } : {}),
+    };
+
+    setCaseData((current) =>
+      current
+        ? {
+            ...current,
+            schedule: current.schedule.map((step) => (step.id === stepId ? optimisticStep : step)),
+          }
+        : current
+    );
+
     try {
       const response = await fetch(`/api/cases/${id}/schedule`, {
         method: "PATCH",
@@ -529,8 +617,25 @@ export default function CaseDetailPage() {
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.error ?? "Schedule step could not be updated.");
       }
-      await load();
+
+      const updatedStep: ScheduleStep = await response.json();
+      setCaseData((current) =>
+        current
+          ? {
+              ...current,
+              schedule: current.schedule.map((step) => (step.id === stepId ? updatedStep : step)),
+            }
+          : current
+      );
     } catch (error) {
+      setCaseData((current) =>
+        current
+          ? {
+              ...current,
+              schedule: current.schedule.map((step) => (step.id === stepId ? previousStep : step)),
+            }
+          : current
+      );
       toast.error(error instanceof Error ? error.message : "Schedule step could not be updated.");
     }
   };
@@ -825,7 +930,7 @@ export default function CaseDetailPage() {
         <div className="relative">
           <select
             value={editStatus}
-            onChange={(e) => setEditStatus(e.target.value)}
+            onChange={(e) => void updateCaseStatusOptimistically(e.target.value)}
             className={`appearance-none text-xs px-3 py-1.5 pr-7 rounded-full border font-semibold cursor-pointer focus:outline-none transition-all ${STATUS_COLORS[editStatus]}`}
           >
             {["INCOMING","IN_LAB","WIP","HOLD","REMAKE","COMPLETE","SHIPPED"].map((s) => (

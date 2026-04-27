@@ -5,6 +5,14 @@ import EmailProvider from "next-auth/providers/email";
 import { prisma } from "./prisma";
 import bcrypt from "bcryptjs";
 
+export interface SessionTenantAccess {
+  tenantId: string;
+  tenantName: string;
+  dentalAccountId: string | null;
+  dentalAccountName: string | null;
+  isDefault: boolean;
+}
+
 async function sendMagicLinkEmail({
   identifier,
   url,
@@ -60,8 +68,71 @@ async function buildSessionUser(userId?: string | null, email?: string | null) {
 
   return prisma.user.findFirst({
     where: userId ? { id: userId } : { email: email ?? undefined },
-    include: { technician: { select: { id: true } } },
+    include: {
+      technician: { select: { id: true } },
+      tenant: { select: { name: true } },
+      dentalAccount: { select: { name: true } },
+      tenantAccesses: {
+        select: {
+          tenantId: true,
+          dentalAccountId: true,
+          isDefault: true,
+          tenant: { select: { name: true } },
+          dentalAccount: { select: { name: true } },
+        },
+        orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+      },
+    },
   });
+}
+
+function mapTenantAccesses(
+  tenantAccesses:
+    | Array<{
+        tenantId: string;
+        dentalAccountId: string | null;
+        isDefault: boolean;
+        tenant: { name: string };
+        dentalAccount: { name: string } | null;
+      }>
+    | undefined
+): SessionTenantAccess[] {
+  return (tenantAccesses ?? []).map((access) => ({
+    tenantId: access.tenantId,
+    tenantName: access.tenant.name,
+    dentalAccountId: access.dentalAccountId ?? null,
+    dentalAccountName: access.dentalAccount?.name ?? null,
+    isDefault: access.isDefault,
+  }));
+}
+
+function withLegacyDoctorAccess(
+  user: {
+    role: string;
+    tenantId: string | null;
+    dentalAccountId: string | null;
+    tenant?: { name: string } | null;
+    dentalAccount?: { name: string } | null;
+  },
+  accesses: SessionTenantAccess[]
+) {
+  if (user.role !== "DOCTOR" || accesses.length > 0 || !user.tenantId || !user.dentalAccountId) {
+    return accesses;
+  }
+
+  return [
+    {
+      tenantId: user.tenantId,
+      tenantName: user.tenant?.name ?? "Dental Lab",
+      dentalAccountId: user.dentalAccountId,
+      dentalAccountName: user.dentalAccount?.name ?? null,
+      isDefault: true,
+    },
+  ];
+}
+
+function pickDefaultTenantAccess(accesses: SessionTenantAccess[]) {
+  return accesses.find((access) => access.isDefault) ?? accesses[0] ?? null;
 }
 
 export const authOptions: NextAuthOptions = {
@@ -85,7 +156,21 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
-          include: { technician: { select: { id: true } } },
+          include: {
+            technician: { select: { id: true } },
+            tenant: { select: { name: true } },
+            dentalAccount: { select: { name: true } },
+            tenantAccesses: {
+              select: {
+                tenantId: true,
+                dentalAccountId: true,
+                isDefault: true,
+                tenant: { select: { name: true } },
+                dentalAccount: { select: { name: true } },
+              },
+              orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+            },
+          },
         });
         if (!user || !user.password) return null;
         const valid = await bcrypt.compare(credentials.password, user.password);
@@ -98,6 +183,7 @@ export const authOptions: NextAuthOptions = {
           tenantId: user.tenantId,
           dentalAccountId: user.dentalAccountId,
           technicianId: user.technician?.id ?? null,
+          tenantAccesses: mapTenantAccesses(user.tenantAccesses),
         };
       },
     }),
@@ -128,11 +214,19 @@ export const authOptions: NextAuthOptions = {
 
       const dbUser = await buildSessionUser(token.sub as string | undefined, token.email ?? null);
       if (dbUser) {
+        const tenantAccesses = withLegacyDoctorAccess(
+          dbUser,
+          mapTenantAccesses(dbUser.tenantAccesses)
+        );
+        const defaultAccess = pickDefaultTenantAccess(tenantAccesses);
+
         token.email = dbUser.email;
         token.name = dbUser.name ?? token.name;
         token.role = dbUser.role;
-        token.tenantId = dbUser.tenantId;
-        token.dentalAccountId = dbUser.dentalAccountId;
+        token.tenantAccesses = tenantAccesses;
+        token.tenantId = dbUser.role === "DOCTOR" ? defaultAccess?.tenantId ?? null : dbUser.tenantId;
+        token.dentalAccountId =
+          dbUser.role === "DOCTOR" ? defaultAccess?.dentalAccountId ?? null : dbUser.dentalAccountId;
         token.technicianId = dbUser.technician?.id ?? null;
       }
 
@@ -148,6 +242,8 @@ export const authOptions: NextAuthOptions = {
           token.dentalAccountId as string | null;
         (session.user as { technicianId?: string | null }).technicianId =
           token.technicianId as string | null;
+        (session.user as { tenantAccesses?: SessionTenantAccess[] }).tenantAccesses =
+          (token.tenantAccesses as SessionTenantAccess[] | undefined) ?? [];
       }
       return session;
     },

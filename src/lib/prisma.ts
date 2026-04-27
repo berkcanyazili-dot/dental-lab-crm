@@ -2,15 +2,17 @@ import { PrismaClient, Prisma } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
+  tenantPrismaClients: Map<string, TenantPrismaClient> | undefined;
 };
 
-const basePrisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+function createPrismaClient() {
+  return new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
+}
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = basePrisma;
+const basePrisma =
+  globalForPrisma.prisma ?? createPrismaClient();
 
 const TENANT_SCOPED_MODELS = new Set([
   "Tenant",
@@ -71,7 +73,7 @@ function normalizeWriteData(
   };
 }
 
-export function getTenantPrisma(tenantId: string) {
+function createTenantPrismaClient(tenantId: string) {
   return basePrisma.$extends({
     name: "tenant-scope",
     query: {
@@ -123,6 +125,27 @@ export function getTenantPrisma(tenantId: string) {
   });
 }
 
+export type TenantPrismaClient = ReturnType<typeof createTenantPrismaClient>;
+
+const tenantPrismaClients =
+  globalForPrisma.tenantPrismaClients ?? new Map<string, TenantPrismaClient>();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = basePrisma;
+  globalForPrisma.tenantPrismaClients = tenantPrismaClients;
+}
+
+export function getTenantPrisma(tenantId: string) {
+  const cached = tenantPrismaClients.get(tenantId);
+  if (cached) {
+    return cached;
+  }
+
+  const tenantClient = createTenantPrismaClient(tenantId);
+
+  tenantPrismaClients.set(tenantId, tenantClient);
+  return tenantClient;
+}
+
 export const prisma = basePrisma;
-export type TenantPrismaClient = ReturnType<typeof getTenantPrisma>;
 export type PrismaTransactionClient = Prisma.TransactionClient;

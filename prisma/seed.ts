@@ -162,6 +162,30 @@ async function main() {
     },
   });
 
+  const doctorUser = await prisma.user.findUniqueOrThrow({
+    where: { email: "doctor@brightsmile.com" },
+    select: { id: true },
+  });
+
+  await prisma.tenantAccess.upsert({
+    where: {
+      userId_tenantId: {
+        userId: doctorUser.id,
+        tenantId: tenant.id,
+      },
+    },
+    update: {
+      dentalAccountId: accounts[0].id,
+      isDefault: true,
+    },
+    create: {
+      userId: doctorUser.id,
+      tenantId: tenant.id,
+      dentalAccountId: accounts[0].id,
+      isDefault: true,
+    },
+  });
+
   const casesData = [
     {
       id: "case-001",

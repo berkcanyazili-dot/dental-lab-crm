@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { ACTIVE_PORTAL_TENANT_COOKIE } from "@/lib/portal";
 
 const PUBLIC_API_ROUTES = [
   "/api/auth",
@@ -38,8 +39,27 @@ export async function middleware(request: NextRequest) {
 
   if (token) {
     const role = token.role;
-    const tenantId = typeof token.tenantId === "string" ? token.tenantId : null;
     const isDoctor = role === "DOCTOR";
+    const doctorAccesses = Array.isArray(token.tenantAccesses)
+      ? token.tenantAccesses.filter(
+          (access): access is { tenantId: string; dentalAccountId?: string | null; isDefault?: boolean } =>
+            typeof access === "object" &&
+            access !== null &&
+            typeof (access as { tenantId?: unknown }).tenantId === "string"
+        )
+      : [];
+    const requestedPortalTenantId = request.cookies.get(ACTIVE_PORTAL_TENANT_COOKIE)?.value ?? null;
+    const activeDoctorAccess = isDoctor
+      ? doctorAccesses.find((access) => access.tenantId === requestedPortalTenantId) ??
+        doctorAccesses.find((access) => access.isDefault) ??
+        doctorAccesses[0] ??
+        null
+      : null;
+    const tenantId = isDoctor
+      ? activeDoctorAccess?.tenantId ?? null
+      : typeof token.tenantId === "string"
+        ? token.tenantId
+        : null;
     const isTechnician = role === "TECHNICIAN";
     const isPortalPath = pathname === "/portal" || pathname.startsWith("/portal/");
     const isPortalApiPath = pathname === "/api/portal" || pathname.startsWith("/api/portal/");

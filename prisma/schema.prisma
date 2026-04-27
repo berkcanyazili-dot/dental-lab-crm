@@ -199,6 +199,7 @@ model Tenant {
   shopifySettings       ShopifySettings?
   serviceProducts       ServiceProduct[]
   workflowStepTemplates WorkflowStepTemplate[]
+  tenantAccesses        TenantAccess[]
 }
 
 model LabSettings {
@@ -280,6 +281,23 @@ model User {
   authAccounts  AuthAccount[]
   sessions      Session[]
   technician    Technician?
+  tenantAccesses TenantAccess[]
+}
+
+model TenantAccess {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dentalAccountId String?
+  dentalAccount   DentalAccount? @relation(fields: [dentalAccountId], references: [id], onDelete: SetNull)
+  isDefault       Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, dentalAccountId])
 }
 
 model AuthAccount {
@@ -337,6 +355,7 @@ model DentalAccount {
   cases      Case[]
   invoices   Invoice[]
   users      User[]
+  tenantAccesses TenantAccess[]
 }
 
 model Case {

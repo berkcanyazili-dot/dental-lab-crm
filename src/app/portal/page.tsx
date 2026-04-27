@@ -22,6 +22,19 @@ interface PortalAccount {
   doctorName: string | null;
   _count: { cases: number };
   user: { name?: string | null; email?: string | null };
+  currentLab?: {
+    tenantId: string;
+    tenantName: string;
+    dentalAccountId: string;
+    dentalAccountName: string | null;
+  };
+  accessibleLabs?: Array<{
+    tenantId: string;
+    tenantName: string;
+    dentalAccountId: string | null;
+    dentalAccountName: string | null;
+    isDefault: boolean;
+  }>;
 }
 
 interface PortalCase {
@@ -63,16 +76,24 @@ export default function DoctorPortalPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [payingInvoiceId, setPayingInvoiceId] = useState("");
+  const [switchingLab, setSwitchingLab] = useState(false);
+
+  async function loadPortalData() {
+    const [accountResponse, casesResponse] = await Promise.all([
+      fetch("/api/portal/account"),
+      fetch("/api/portal/cases"),
+    ]);
+    const [accountData, caseData] = await Promise.all([
+      accountResponse.json(),
+      casesResponse.json(),
+    ]);
+
+    setAccount(accountData);
+    setCases(Array.isArray(caseData) ? caseData : []);
+  }
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/portal/account").then((response) => response.json()),
-      fetch("/api/portal/cases").then((response) => response.json()),
-    ])
-      .then(([accountData, caseData]) => {
-        setAccount(accountData);
-        setCases(Array.isArray(caseData) ? caseData : []);
-      })
+    loadPortalData()
       .finally(() => setLoading(false));
   }, []);
 
@@ -115,18 +136,65 @@ export default function DoctorPortalPage() {
     }
   }
 
+  async function handleLabChange(tenantId: string) {
+    if (!tenantId || tenantId === account?.currentLab?.tenantId) {
+      return;
+    }
+
+    setSwitchingLab(true);
+    try {
+      const response = await fetch("/api/portal/context", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tenantId }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Lab switch failed.");
+      }
+
+      await loadPortalData();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Lab switch failed.");
+    } finally {
+      setSwitchingLab(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-950">
       <header className="border-b border-slate-800 bg-slate-900">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-sky-300">Doctor Portal</p>
-            <h1 className="text-xl font-bold text-white">{account?.name ?? "Dental Lab Portal"}</h1>
+            <h1 className="text-xl font-bold text-white">
+              {account?.currentLab?.tenantName ?? account?.name ?? "Dental Lab Portal"}
+            </h1>
             <p className="text-sm text-slate-400">
               {account?.doctorName ? `Dr. ${account.doctorName}` : account?.user.email ?? ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {(account?.accessibleLabs?.length ?? 0) > 1 && (
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <span className="hidden md:inline">Lab</span>
+                <select
+                  value={account?.currentLab?.tenantId ?? ""}
+                  onChange={(event) => handleLabChange(event.target.value)}
+                  disabled={switchingLab}
+                  className="h-10 rounded border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none focus:border-sky-400 disabled:opacity-60"
+                >
+                  {(account?.accessibleLabs ?? []).map((lab) => (
+                    <option key={`${lab.tenantId}:${lab.dentalAccountId ?? "none"}`} value={lab.tenantId}>
+                      {lab.tenantName}
+                      {lab.dentalAccountName ? ` - ${lab.dentalAccountName}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <Link
               href="/portal/new-order"
               className="flex h-10 items-center gap-2 rounded bg-sky-600 px-4 text-sm font-bold text-white hover:bg-sky-500"
